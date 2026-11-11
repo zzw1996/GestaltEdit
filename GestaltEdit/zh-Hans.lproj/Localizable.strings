@@ -188,3 +188,24 @@
 "No change log" = "无变更记录";
 "Show change details" = "展开变更明细";
 "Showing the first %lld changes only." = "仅显示前 %lld 条变更。";
+
+"iPadOS Status" = "iPadOS 状态";
+"Device class" = "设备类型";
+"iPad identity flag" = "iPad 身份标记";
+"Multitasking flags" = "多任务能力标记";
+"Stage Manager flag" = "台前调度标记";
+"On" = "开";
+"Enabled" = "开启";
+"Disabled" = "关闭";
+"iPad (3)" = "iPad（3）";
+"iPhone (1)" = "iPhone（1）";
+"Unknown (not written by GestaltEdit)" = "未知（非 GestaltEdit 写入）";
+"Copy Diagnostics" = "复制诊断信息";
+"Values are read back from the plist on disk, so they reflect what the system will use after the next respring." = "以上数值从磁盘上的 plist 读回，即下次注销后系统实际会使用的状态。";
+"How to Use Windows and Split View" = "如何使用窗口与分屏";
+"1. Settings → Multitasking & Gestures → Windowed Apps." = "1. 设置 → 多任务与手势 → 窗口化应用。";
+"2. Turn off Rotation Lock in Control Center before testing orientation." = "2. 测试横竖屏之前，先在控制中心关闭「旋转锁定」。";
+"3. Drag the top edge of a window to the top or bottom of the screen to split vertically in portrait, or to a side edge to split side by side in landscape." = "3. 竖屏时把窗口顶边拖到屏幕上边缘或下边缘，即可上下分屏；横屏时拖到左/右边缘，即可左右分屏。";
+"4. Drag the divider to resize both halves; the red, yellow and green controls close, minimise and zoom a window." = "4. 拖动中间分隔条可同时调整两半尺寸；红、黄、绿三个按钮分别关闭、最小化和全屏。";
+"Window Tips" = "窗口技巧";
+"iPhone-only apps stay in a phone-sized window; apps that support iPad render at tablet sizes, so wide screenshots may letterbox on a phone display." = "仅支持 iPhone 的应用会保持手机尺寸窗口；支持 iPad 的应用按平板尺寸渲染，因此在手机上可能出现留黑边。";

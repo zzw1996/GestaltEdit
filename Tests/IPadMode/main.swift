@@ -77,10 +77,21 @@ func checkCapabilityFlagsAreWritten() {
     }
 }
 
+func checkNibbleAccessor() {
+    let plist = GestaltPlist(dict: ["CacheData": Data([0x12, 0x34])])
+    precondition(plist.deviceClassNibble(at: 0) == "1")
+    precondition(plist.deviceClassNibble(at: 1) == "2")
+    precondition(plist.deviceClassNibble(at: 2) == "3")
+    precondition(plist.deviceClassNibble(at: 3) == "4")
+    precondition(plist.deviceClassNibble(at: 4) == nil)
+    precondition(GestaltPlist(dict: [:]).deviceClassNibble(at: 0) == nil)
+}
+
 checkModeKeys()
 checkDetection()
 checkRecordCoding()
 checkRestoreWithoutCacheDataFails()
 checkCapabilityFlagsAreWritten()
+checkNibbleAccessor()
 
-print("Passed: iPad mode keys, detection, record coding, restore guard and capability writes.")
+print("Passed: iPad mode keys, detection, record coding, restore guard, capability writes and nibble reads.")

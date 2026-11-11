@@ -9,6 +9,16 @@ enum IPadModeChoice: Hashable, Identifiable {
     var id: String { String(describing: self) }
 }
 
+/// What the file actually contains right now, shown in the diagnostics section.
+struct IPadStatusSnapshot {
+    let mode: IPadModeChoice
+    let hasIdentity: Bool
+    let stageManagerEnabled: Bool
+    let capabilityCount: Int
+    let deviceClassNibble: String?
+    let recordedPatch: IPadDeviceClassPatch?
+}
+
 @MainActor
 final class GestaltViewModel: ObservableObject {
     @Published var plist: GestaltPlist?
@@ -73,6 +83,25 @@ final class GestaltViewModel: ObservableObject {
             return
         }
         stagedIPadMode = choice == currentIPadMode ? nil : choice
+    }
+
+    var ipadStatus: IPadStatusSnapshot {
+        let values = plist?.cacheExtra ?? [:]
+        let identity = (values[GestaltPlist.ipadIdentityKey] as? Int).map { $0 != 0 } ?? false
+        let stageManager = (values[GestaltPlist.ipadStageManagerKey] as? Int) == 1
+        let capabilityCount = GestaltPlist.ipadMultitaskingKeys.filter { key in
+            (values[key] as? Int) == 1
+        }.count
+        let patch = IPadModeStore.load()?.patch
+        let nibble = patch.flatMap { plist?.deviceClassNibble(at: $0.nibbleOffset) }
+        return IPadStatusSnapshot(
+            mode: currentIPadMode,
+            hasIdentity: identity,
+            stageManagerEnabled: stageManager,
+            capabilityCount: capabilityCount,
+            deviceClassNibble: nibble,
+            recordedPatch: patch
+        )
     }
 
     func load() {
@@ -205,12 +234,17 @@ final class GestaltViewModel: ObservableObject {
                 }
             }
 
+            let expectedNibbleOffset = ipadRecord?.patch?.nibbleOffset
             let ipadValidation: ((GestaltPlist) throws -> Void)?
             if let staged = stagedIPadMode {
                 ipadValidation = { verifiedPlist in
                     switch staged {
                     case .full:
                         guard verifiedPlist.appliedIPadMode == .full else {
+                            throw GestaltEditError.verificationFailed
+                        }
+                        if let expectedNibbleOffset,
+                           verifiedPlist.deviceClassNibble(at: expectedNibbleOffset) != "3" {
                             throw GestaltEditError.verificationFailed
                         }
                     case .capabilities:

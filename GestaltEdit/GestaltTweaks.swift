@@ -168,6 +168,16 @@ extension GestaltPlist {
         }
     }
 
+    /// Reads one CacheData nibble so the UI can show what the device class
+    /// really holds instead of trusting the staged state.
+    func deviceClassNibble(at index: Int) -> String? {
+        guard let cacheData = dict["CacheData"] as? Data,
+              index >= 0, index < cacheData.count * 2 else { return nil }
+        let byte = cacheData[cacheData.startIndex + index / 2]
+        let hex = String(format: "%02x", byte)
+        return index % 2 == 0 ? String(hex.first!) : String(hex.last!)
+    }
+
     /// Which mode the current file already carries, if any.
     var appliedIPadMode: IPadMode? {
         let values = cacheExtra

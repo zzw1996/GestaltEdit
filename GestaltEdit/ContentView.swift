@@ -47,6 +47,8 @@ private struct TweakWorkbench: View {
                     dynamicIslandSection
                     modelNameSection
                     ipadModeSection
+                    ipadStatusSection
+                    ipadUsageSection
 
                     ForEach(GestaltTweakCategory.allCases.filter { $0 != .region }) { category in
                         tweakSection(category)
@@ -220,6 +222,71 @@ private struct TweakWorkbench: View {
             return String(localized: "Capability flags alone were verified not to bring up the window UI.")
         case .full:
             return String(localized: "Switches the device class to iPad. iPadOS window features require this; iPhone-only apps keep their phone layouts, but apps that support iPad adopt tablet layouts.")
+        }
+    }
+
+    private var ipadStatusSection: some View {
+        Section {
+            LabeledContent("Device class", value: deviceClassDescription)
+            LabeledContent("iPad identity flag", value: viewModel.ipadStatus.hasIdentity
+                ? String(localized: "Enabled")
+                : String(localized: "Disabled"))
+            LabeledContent("Multitasking flags", value: "\(viewModel.ipadStatus.capabilityCount)/4")
+            LabeledContent("Stage Manager flag", value: viewModel.ipadStatus.stageManagerEnabled
+                ? String(localized: "Enabled")
+                : String(localized: "Disabled"))
+            Button {
+                UIPasteboard.general.string = diagnosticText
+            } label: {
+                Label("Copy Diagnostics", systemImage: "doc.on.doc")
+            }
+        } header: {
+            Text("iPadOS Status")
+        } footer: {
+            Text("Values are read back from the plist on disk, so they reflect what the system will use after the next respring.")
+        }
+    }
+
+    private var deviceClassDescription: String {
+        switch viewModel.ipadStatus.deviceClassNibble {
+        case "3": String(localized: "iPad (3)")
+        case "1": String(localized: "iPhone (1)")
+        default: String(localized: "Unknown (not written by GestaltEdit)")
+        }
+    }
+
+    private var diagnosticText: String {
+        let status = viewModel.ipadStatus
+        var lines = [
+            "GestaltEdit iPadOS diagnostics",
+            "mode=\(status.mode)",
+            "deviceClass=\(status.deviceClassNibble ?? "unknown")",
+            "identity=\(status.hasIdentity)",
+            "multitaskingFlags=\(status.capabilityCount)/4",
+            "stageManager=\(status.stageManagerEnabled)"
+        ]
+        if let patch = status.recordedPatch {
+            lines.append("nibbleOffset=\(patch.nibbleOffset) original=\(patch.originalNibble)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private var ipadUsageSection: some View {
+        Section {
+            DisclosureGroup("How to Use Windows and Split View") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("1. Settings → Multitasking & Gestures → Windowed Apps.")
+                    Text("2. Turn off Rotation Lock in Control Center before testing orientation.")
+                    Text("3. Drag the top edge of a window to the top or bottom of the screen to split vertically in portrait, or to a side edge to split side by side in landscape.")
+                    Text("4. Drag the divider to resize both halves; the red, yellow and green controls close, minimise and zoom a window.")
+                }
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        } header: {
+            Text("Window Tips")
+        } footer: {
+            Text("iPhone-only apps stay in a phone-sized window; apps that support iPad render at tablet sizes, so wide screenshots may letterbox on a phone display.")
         }
     }
 
