@@ -2,6 +2,8 @@ name: Build unsigned IPA
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -35,6 +37,13 @@ jobs:
           xcrun swiftc GestaltEdit/GestaltModels.swift Tests/DeviceProfiles/main.swift \
             -o "$RUNNER_TEMP/gestalt-device-tests"
           "$RUNNER_TEMP/gestalt-device-tests"
+
+      - name: Run iPad mode tests
+        run: |
+          xcrun swiftc GestaltEdit/GestaltModels.swift GestaltEdit/GestaltTweaks.swift \
+            Tests/IPadMode/main.swift \
+            -o "$RUNNER_TEMP/gestalt-ipad-mode-tests"
+          "$RUNNER_TEMP/gestalt-ipad-mode-tests"
 
       - name: Build unsigned archive
         run: |

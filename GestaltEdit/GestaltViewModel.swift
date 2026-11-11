@@ -1,6 +1,14 @@
 import Combine
 import Foundation
 
+enum IPadModeChoice: Hashable, Identifiable {
+    case off
+    case capabilities
+    case full
+
+    var id: String { String(describing: self) }
+}
+
 @MainActor
 final class GestaltViewModel: ObservableObject {
     @Published var plist: GestaltPlist?
@@ -14,6 +22,7 @@ final class GestaltViewModel: ObservableObject {
     @Published var changesModelName = false
     @Published var modelName = ""
     @Published var stagesAIRegion = false
+    @Published var stagedIPadMode: IPadModeChoice?
     @Published private(set) var isRespringing = false
 
     private let access = GestaltAccess.shared()
@@ -39,6 +48,7 @@ final class GestaltViewModel: ObservableObject {
             || dynamicIslandSubtype != nil
             || (changesModelName && !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             || stagesAIRegion
+            || stagedIPadMode != nil
     }
 
     var stagedChangeCount: Int {
@@ -46,6 +56,17 @@ final class GestaltViewModel: ObservableObject {
             + (dynamicIslandSubtype == nil ? 0 : 1)
             + (changesModelName ? 1 : 0)
             + (stagesAIRegion ? 1 : 0)
+            + (stagedIPadMode == nil ? 0 : 1)
+    }
+
+    /// What the file currently carries, independent of anything staged.
+    var currentIPadMode: IPadModeChoice {
+        guard let mode = plist?.appliedIPadMode else { return .off }
+        return mode == .full ? .full : .capabilities
+    }
+
+    func setIPadMode(_ choice: IPadModeChoice) {
+        stagedIPadMode = choice == currentIPadMode ? nil : choice
     }
 
     func load() {
@@ -125,12 +146,91 @@ final class GestaltViewModel: ObservableObject {
                 pending.setCacheExtra(profile.regulatoryModel, forKey: "97JDvERpVwO+GHtthIh7hA")
                 expectedConfiguration = configuration
             }
-            save(pending, expectedAIRegion: expectedConfiguration) { [weak self] in
+            let stagedIPadModeForWrite = stagedIPadMode
+            let priorRecord = IPadModeStore.load()
+            var ipadRecord: IPadModeRecord?
+            if let staged = stagedIPadMode {
+                switch staged {
+                case .full:
+                    var previousValues = priorRecord?.previousValues ?? [:]
+                    for key in GestaltPlist.keys(for: .full) where previousValues[key] == nil {
+                        if let value = pending.cacheExtra[key] as? Int { previousValues[key] = value }
+                    }
+                    let newPatch = try pending.enableIPadMode()
+                    // Keep the very first recorded nibble, so repeated applies still
+                    // revert to the original phone state rather than to "already iPad".
+                    let keptPatch = priorRecord?.patch.flatMap { old -> IPadDeviceClassPatch? in
+                        old.nibbleOffset == newPatch.nibbleOffset ? old : nil
+                    }
+                    ipadRecord = IPadModeRecord(
+                        mode: .full,
+                        patch: keptPatch ?? newPatch,
+                        previousValues: previousValues,
+                        writtenKeys: Set(GestaltPlist.keys(for: .full))
+                            .union(priorRecord?.writtenKeys ?? [])
+                            .sorted()
+                    )
+                case .capabilities:
+                    // A device class written outside this app cannot be undone here.
+                    if priorRecord == nil, pending.appliedIPadMode == .full {
+                        throw GestaltTweakError.ipadModeNotRevertible
+                    }
+                    // Leave the iPad device class behind when coming from full mode.
+                    if let priorRecord {
+                        try pending.restoreIPadMode(using: priorRecord)
+                    }
+                    var previousValues: [String: Int] = [:]
+                    for key in GestaltPlist.keys(for: .capabilities) {
+                        if let value = pending.cacheExtra[key] as? Int { previousValues[key] = value }
+                    }
+                    pending.enableIPadCapabilities()
+                    ipadRecord = IPadModeRecord(
+                        mode: .capabilities,
+                        patch: nil,
+                        previousValues: previousValues,
+                        writtenKeys: GestaltPlist.keys(for: .capabilities)
+                    )
+                case .off:
+                    guard let priorRecord else {
+                        throw GestaltTweakError.ipadModeNotRevertible
+                    }
+                    try pending.restoreIPadMode(using: priorRecord)
+                    ipadRecord = nil
+                }
+            }
+
+            let ipadValidation: ((GestaltPlist) throws -> Void)?
+            if let staged = stagedIPadMode {
+                ipadValidation = { verifiedPlist in
+                    switch staged {
+                    case .full:
+                        guard verifiedPlist.appliedIPadMode == .full else {
+                            throw GestaltEditError.verificationFailed
+                        }
+                    case .capabilities:
+                        guard verifiedPlist.appliedIPadMode == .capabilities else {
+                            throw GestaltEditError.verificationFailed
+                        }
+                    case .off:
+                        guard verifiedPlist.appliedIPadMode == nil else {
+                            throw GestaltEditError.verificationFailed
+                        }
+                    }
+                }
+            } else {
+                ipadValidation = nil
+            }
+
+            save(pending, expectedAIRegion: expectedConfiguration, validation: ipadValidation) { [weak self] in
+                if stagedIPadModeForWrite != nil {
+                    IPadModeStore.save(ipadRecord)
+                }
                 self?.selectedTweaks.removeAll()
                 self?.dynamicIslandSubtype = nil
                 self?.changesModelName = false
                 self?.modelName = ""
                 self?.stagesAIRegion = false
+                self?.stagedIPadMode = nil
             }
         } catch {
             report(error)
@@ -237,6 +337,7 @@ final class GestaltViewModel: ObservableObject {
     private func save(
         _ pendingPlist: GestaltPlist,
         expectedAIRegion: AIRegionConfiguration?,
+        validation: ((GestaltPlist) throws -> Void)? = nil,
         completion: (() -> Void)? = nil
     ) {
         isBusy = true
@@ -268,6 +369,8 @@ final class GestaltViewModel: ObservableObject {
                     }
                 }
             }
+
+            try validation?(verifiedPlist)
 
             plist = verifiedPlist
             isDirty = false

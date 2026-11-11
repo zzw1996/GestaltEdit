@@ -20,6 +20,35 @@ enum GestaltTweakCategory: String, CaseIterable, Identifiable {
     }
 }
 
+/// The two supported ways to expose iPadOS multitasking on an iPhone.
+enum IPadMode: String, Codable, CaseIterable, Identifiable {
+    /// Device class stays iPhone; only the multitasking capability flags are set.
+    /// Apps keep phone layouts.
+    case capabilities
+    /// Full iPadOS mode: device class becomes iPad, so apps adopt tablet layouts.
+    case full
+
+    var id: String { rawValue }
+}
+
+/// A reversible bookkeeping record of the `DeviceClassNumber` nibble we changed.
+/// Keeping the offset and the original value is what makes the mode reversible:
+/// CacheData is an undocumented byte blob, so nothing can be recomputed later.
+struct IPadDeviceClassPatch: Codable, Equatable {
+    let nibbleOffset: Int
+    let originalNibble: String
+}
+
+/// What this app wrote for a given iPadOS mode, and what the fields looked like
+/// before. Used to put the plist back exactly as it was.
+struct IPadModeRecord: Codable, Equatable {
+    let mode: IPadMode
+    let patch: IPadDeviceClassPatch?
+    let previousValues: [String: Int]
+    /// Every field this app touched for the mode, accumulated across switches.
+    let writtenKeys: [String]
+}
+
 enum GestaltTweakID: String, CaseIterable, Identifiable {
     case supportsDynamicIsland
     case bootChime
@@ -30,7 +59,6 @@ enum GestaltTweakID: String, CaseIterable, Identifiable {
     case enableLiquidGlassLowPerformance
     case disableLiquidGlassLowPerformance
     case stageManager
-    case iPadOS
     case iPadApps
     case pencil
     case actionButton
@@ -72,7 +100,6 @@ enum GestaltTweakCatalog {
 
         .init(id: .stageManager, category: .ipad, title: String(localized: "Stage Manager Support"), detail: String(localized: "Marks the device as supporting Stage Manager."), values: ["qeaj75wk3HF4DwQ8qbIi7g": 1]),
         .init(id: .iPadApps, category: .ipad, title: String(localized: "Allow iPad Apps"), detail: String(localized: "Enables iPad app compatibility types on iPhone."), values: ["9MZ5AdH43csAUajl/dU+IQ": [1, 2]]),
-        .init(id: .iPadOS, category: .ipad, title: String(localized: "Enable iPadOS Mode"), detail: String(localized: "Changes five capabilities and CacheData; experimental and high risk."), values: ["mG0AnH/Vy1veoqoLRAIgTA": 1, "UCG5MkVahJxG1YULbbd5Bg": 1, "ZYqko/XM5zD3XBfN5RmaXA": 1, "nVh/gwNpy7Jv1NOk00CMrw": 1, "uKc7FPnEO++lVhHWHFlGbQ": 1], isRisky: true),
 
         .init(id: .internalInstall, category: .internalFeatures, title: String(localized: "Apple Internal Install"), detail: String(localized: "Enables internal capabilities such as Metal HUD; some services may misbehave."), values: ["EqrsVvjcYDdxHBiQmGhAWw": 1], isRisky: true),
         .init(id: .internalStorage, category: .internalFeatures, title: String(localized: "Internal Storage View"), detail: String(localized: "Shows internal files in Storage settings; high risk on some iPads."), values: ["LBJfwOEzExRxzlAnSuI7eg": 1], isRisky: true),
@@ -105,6 +132,7 @@ enum GestaltTweakError: LocalizedError {
     case cacheDataTooShort
     case cacheDataPatternNotFound
     case invalidCacheDataOffset
+    case ipadModeNotRevertible
 
     var errorDescription: String? {
         switch self {
@@ -113,17 +141,82 @@ enum GestaltTweakError: LocalizedError {
         case .cacheDataTooShort: String(localized: "CacheData is too short to apply iPadOS mode safely.")
         case .cacheDataPatternNotFound: String(localized: "The iPadOS marker required by Nugget was not found in CacheData.")
         case .invalidCacheDataOffset: String(localized: "CacheData marker validation failed. No changes were made.")
+        case .ipadModeNotRevertible: String(localized: "This iPadOS mode was not applied by GestaltEdit, so it cannot be reverted here. Restore a backup instead.")
         }
     }
 }
 
 extension GestaltPlist {
+    // "Device is an iPad". This is the identity flag: without it the system keeps
+    // treating the phone as a phone and apps keep their phone layouts.
+    static let ipadIdentityKey = "uKc7FPnEO++lVhHWHFlGbQ"
+    // Stage Manager capability flag, independent of the device class.
+    static let ipadStageManagerKey = "qeaj75wk3HF4DwQ8qbIi7g"
+    // Medusa window capabilities: floating live apps, overlay apps, pinned apps
+    // and PIP mirroring. These are capability flags, not an identity change.
+    static let ipadMultitaskingKeys = [
+        "mG0AnH/Vy1veoqoLRAIgTA",
+        "UCG5MkVahJxG1YULbbd5Bg",
+        "ZYqko/XM5zD3XBfN5RmaXA",
+        "nVh/gwNpy7Jv1NOk00CMrw"
+    ]
+
+    static func keys(for mode: IPadMode) -> [String] {
+        switch mode {
+        case .capabilities: ipadMultitaskingKeys + [ipadStageManagerKey]
+        case .full: ipadMultitaskingKeys + [ipadIdentityKey]
+        }
+    }
+
+    /// Which mode the current file already carries, if any.
+    var appliedIPadMode: IPadMode? {
+        let values = cacheExtra
+        if let identity = values[Self.ipadIdentityKey] as? Int, identity != 0 {
+            return .full
+        }
+        let capabilities = Self.ipadMultitaskingKeys.allSatisfy { key in
+            (values[key] as? Int) == 1
+        }
+        return capabilities ? .capabilities : nil
+    }
+
     mutating func apply(definition: GestaltTweakDefinition) throws {
         for (key, value) in definition.values {
             setCacheExtra(value, forKey: key)
         }
-        if definition.id == .iPadOS {
-            try enableIPadOSCacheData()
+    }
+
+    /// Capability flags only. The device keeps reporting as an iPhone, so every
+    /// app keeps its phone layout; whether iPadOS exposes the window UI on top of
+    /// these flags depends on the system and has to be verified on-device.
+    mutating func enableIPadCapabilities() {
+        for key in Self.keys(for: .capabilities) {
+            setCacheExtra(1, forKey: key)
+        }
+    }
+
+    /// Full iPadOS mode: capability flags plus the iPad device class in CacheData.
+    mutating func enableIPadMode() throws -> IPadDeviceClassPatch {
+        for key in Self.ipadMultitaskingKeys {
+            setCacheExtra(1, forKey: key)
+        }
+        setCacheExtra(1, forKey: Self.ipadIdentityKey)
+        let result = try patchDeviceClassNumber(to: "3")
+        return IPadDeviceClassPatch(nibbleOffset: result.offset, originalNibble: result.previous)
+    }
+
+    /// Puts back the flags and the device class nibble this app changed earlier.
+    mutating func restoreIPadMode(using record: IPadModeRecord) throws {
+        if let patch = record.patch {
+            try restoreDeviceClassNumber(using: patch)
+        }
+        let keys = record.writtenKeys.isEmpty ? Self.keys(for: record.mode) : record.writtenKeys
+        for key in keys {
+            if let value = record.previousValues[key] {
+                setCacheExtra(value, forKey: key)
+            } else {
+                removeCacheExtraValue(forKey: key)
+            }
         }
     }
 
@@ -146,17 +239,57 @@ extension GestaltPlist {
         setCacheExtra(artwork, forKey: key)
     }
 
-    private mutating func enableIPadOSCacheData() throws {
-        guard let cacheData = dict["CacheData"] as? Data else {
-            throw GestaltTweakError.cacheDataMissing
-        }
-        var hex = Array(cacheData.map { String(format: "%02x", $0) }.joined())
-        let sliceStart = 1616
-        let sliceLength = 200
-        guard hex.count > sliceStart else { throw GestaltTweakError.cacheDataTooShort }
+    private static let deviceClassNumberSearchStart = 1616
+    private static let deviceClassNumberSearchLength = 200
 
-        let end = min(hex.count, sliceStart + sliceLength)
-        let slice = String(hex[sliceStart..<end])
+    /// Writes the device class nibble and reports what it used to be, so the
+    /// change can be undone later without guessing again.
+    private mutating func patchDeviceClassNumber(to newValue: String) throws -> (offset: Int, previous: String) {
+        var nibbles = try Self.cacheDataNibbles(in: dict)
+        let offset = try Self.deviceClassNumberOffset(in: nibbles)
+        let leftOffset = offset - 67
+        let rightOffset = offset + 13
+        guard leftOffset > 0, rightOffset < nibbles.count - 1 else {
+            throw GestaltTweakError.invalidCacheDataOffset
+        }
+        for position in [leftOffset, rightOffset] {
+            guard ["1", "3"].contains(String(nibbles[position])),
+                  nibbles[position - 1] == "0", nibbles[position + 1] == "0" else {
+                throw GestaltTweakError.invalidCacheDataOffset
+            }
+        }
+        let previous = String(nibbles[leftOffset])
+        guard previous != newValue else { return (leftOffset, previous) }
+        nibbles[leftOffset] = Character(newValue)
+        try Self.writeCacheData(nibbles, to: &dict)
+        return (leftOffset, previous)
+    }
+
+    /// Undoes `patchDeviceClassNumber(to:)` using the recorded offset instead of
+    /// searching again, and refuses to write when the stored position no longer
+    /// matches what this app wrote.
+    private mutating func restoreDeviceClassNumber(using patch: IPadDeviceClassPatch) throws {
+        var nibbles = try Self.cacheDataNibbles(in: dict)
+        let offset = patch.nibbleOffset
+        guard offset > 0, offset + 1 < nibbles.count,
+              ["1", "3"].contains(patch.originalNibble) else {
+            throw GestaltTweakError.invalidCacheDataOffset
+        }
+        if String(nibbles[offset]) == patch.originalNibble { return }
+        guard String(nibbles[offset]) == "3",
+              nibbles[offset - 1] == "0", nibbles[offset + 1] == "0" else {
+            throw GestaltTweakError.invalidCacheDataOffset
+        }
+        nibbles[offset] = Character(patch.originalNibble)
+        try Self.writeCacheData(nibbles, to: &dict)
+    }
+
+    private static func deviceClassNumberOffset(in nibbles: [Character]) throws -> Int {
+        guard nibbles.count > deviceClassNumberSearchStart + 2 else {
+            throw GestaltTweakError.cacheDataTooShort
+        }
+        let end = min(nibbles.count, deviceClassNumberSearchStart + deviceClassNumberSearchLength)
+        let slice = String(nibbles[deviceClassNumberSearchStart..<end])
         let regex = try NSRegularExpression(pattern: "0+(?:5555)*([0-9a-f]{4})")
         let nsRange = NSRange(slice.startIndex..<slice.endIndex, in: slice)
         var matchedOffset: Int?
@@ -164,35 +297,37 @@ extension GestaltPlist {
             guard let range = match.flatMap({ Range($0.range(at: 1), in: slice) }) else { return }
             let value = slice[range]
             if value.filter({ $0 != "0" }).count >= 3 {
-                matchedOffset = sliceStart + slice.distance(from: slice.startIndex, to: range.lowerBound)
+                matchedOffset = deviceClassNumberSearchStart
+                    + slice.distance(from: slice.startIndex, to: range.lowerBound)
                 stop.pointee = true
             }
         }
-        guard let offset = matchedOffset else { throw GestaltTweakError.cacheDataPatternNotFound }
+        guard let matchedOffset else { throw GestaltTweakError.cacheDataPatternNotFound }
+        return matchedOffset
+    }
 
-        let rightOffset = offset + 13
-        let leftOffset = offset - 67
-        guard leftOffset > 0, rightOffset < hex.count - 1 else {
-            throw GestaltTweakError.invalidCacheDataOffset
+    private static func cacheDataNibbles(in dict: [String: Any]) throws -> [Character] {
+        guard let cacheData = dict["CacheData"] as? Data else {
+            throw GestaltTweakError.cacheDataMissing
         }
-        for position in [leftOffset, rightOffset] {
-            guard ["1", "3"].contains(String(hex[position])),
-                  hex[position - 1] == "0", hex[position + 1] == "0" else {
+        return cacheData.reduce(into: [Character]()) { nibbles, byte in
+            nibbles.append(contentsOf: String(format: "%02x", byte))
+        }
+    }
+
+    private static func writeCacheData(_ nibbles: [Character], to dict: inout [String: Any]) throws {
+        let hex = String(nibbles)
+        guard hex.count % 2 == 0 else { throw GestaltTweakError.invalidCacheDataOffset }
+        var data = Data(capacity: hex.count / 2)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
+            guard let byte = UInt8(hex[index..<next], radix: 16) else {
                 throw GestaltTweakError.invalidCacheDataOffset
             }
-        }
-        hex[leftOffset] = "3"
-        let updatedHex = String(hex)
-        var updatedData = Data(capacity: updatedHex.count / 2)
-        var index = updatedHex.startIndex
-        while index < updatedHex.endIndex {
-            let next = updatedHex.index(index, offsetBy: 2)
-            guard let byte = UInt8(updatedHex[index..<next], radix: 16) else {
-                throw GestaltTweakError.invalidCacheDataOffset
-            }
-            updatedData.append(byte)
+            data.append(byte)
             index = next
         }
-        dict["CacheData"] = updatedData
+        dict["CacheData"] = data
     }
 }

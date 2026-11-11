@@ -46,6 +46,7 @@ private struct TweakWorkbench: View {
                     tweakSection(.region)
                     dynamicIslandSection
                     modelNameSection
+                    ipadModeSection
 
                     ForEach(GestaltTweakCategory.allCases.filter { $0 != .region }) { category in
                         tweakSection(category)
@@ -181,6 +182,39 @@ private struct TweakWorkbench: View {
                 TextField("Model Name", text: $viewModel.modelName)
                     .textInputAutocapitalization(.words)
             }
+        }
+    }
+
+    private var ipadModeSection: some View {
+        Section {
+            Picker(
+                "iPadOS Mode",
+                selection: Binding(
+                    get: { viewModel.stagedIPadMode ?? viewModel.currentIPadMode },
+                    set: { viewModel.setIPadMode($0) }
+                )
+            ) {
+                Text("Off").tag(IPadModeChoice.off)
+                Text("Capabilities Only").tag(IPadModeChoice.capabilities)
+                Text("Full iPadOS").tag(IPadModeChoice.full)
+            }
+            .pickerStyle(.inline)
+            .disabled(viewModel.isBusy)
+        } header: {
+            Text("iPadOS Mode")
+        } footer: {
+            Text(ipadModeFooter)
+        }
+    }
+
+    private var ipadModeFooter: String {
+        switch viewModel.stagedIPadMode ?? viewModel.currentIPadMode {
+        case .off:
+            String(localized: "iPhone device class without iPad multitasking flags. Apps keep phone layouts.")
+        case .capabilities:
+            String(localized: "Sets the multitasking capability flags only and keeps the iPhone device class, so apps keep phone layouts. Window features are experimental and may not appear without the iPad device class.")
+        case .full:
+            String(localized: "Switches the device class to iPad. iPadOS window features become available, but apps that support iPad adopt tablet layouts.")
         }
     }
 
