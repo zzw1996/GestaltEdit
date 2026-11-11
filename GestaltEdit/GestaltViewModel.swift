@@ -46,7 +46,7 @@ final class GestaltViewModel: ObservableObject {
     @Published var notice: GestaltNotice?
     @Published private(set) var hasAttemptedLoad = false
     @Published private(set) var backups: [GestaltBackup] = []
-    @Published var selectedTweaks: Set<GestaltTweakID> = []
+    @Published var tweakOverrides: [GestaltTweakID: Bool] = []
     @Published var dynamicIslandSubtype: Int?
     @Published var changesModelName = false
     @Published var modelName = ""
@@ -84,7 +84,7 @@ final class GestaltViewModel: ObservableObject {
     }
 
     var hasStagedTweaks: Bool {
-        !selectedTweaks.isEmpty
+        !tweakOverrides.isEmpty
             || dynamicIslandSubtype != nil
             || (changesModelName && !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             || stagesAIRegion
@@ -92,11 +92,35 @@ final class GestaltViewModel: ObservableObject {
     }
 
     var stagedChangeCount: Int {
-        selectedTweaks.count
+        tweakOverrides.count
             + (dynamicIslandSubtype == nil ? 0 : 1)
             + (changesModelName ? 1 : 0)
             + (stagesAIRegion ? 1 : 0)
             + (stagedIPadMode == nil ? 0 : 1)
+    }
+
+    /// True when every key of this tweak already holds the value it writes.
+    /// This is the on-disk truth, not anything the UI has staged.
+    func isApplied(_ id: GestaltTweakID) -> Bool {
+        guard let plist, let definition = GestaltTweakCatalog.definition(for: id) else { return false }
+        return plist.matches(definition: definition)
+    }
+
+    /// Toggle position: staged intent first, otherwise the real file state.
+    func desiredState(for id: GestaltTweakID) -> Bool {
+        tweakOverrides[id] ?? isApplied(id)
+    }
+
+    var appliedTweakCount: Int {
+        GestaltTweakCatalog.definitions.filter { isApplied($0.id) }.count
+    }
+
+    /// Number of tweaks whose staged state differs from the file.
+    var pendingTweakChangeCount: Int {
+        GestaltTweakCatalog.definitions.filter { definition in
+            guard let desired = tweakOverrides[definition.id] else { return false }
+            return desired != isApplied(definition.id)
+        }.count
     }
 
     /// What the file currently carries, independent of anything staged.
@@ -160,16 +184,20 @@ final class GestaltViewModel: ObservableObject {
         }
     }
 
-    func setTweak(_ id: GestaltTweakID, enabled: Bool) {
-        if enabled {
-            selectedTweaks.insert(id)
-            if id == .enableLiquidGlassLowPerformance {
-                selectedTweaks.remove(.disableLiquidGlassLowPerformance)
-            } else if id == .disableLiquidGlassLowPerformance {
-                selectedTweaks.remove(.enableLiquidGlassLowPerformance)
-            }
+    /// Stages the toggle position; `nil` would mean "same as the file", so a flip
+    /// back to the real state simply drops the override.
+    func setTweakDesired(_ id: GestaltTweakID, enabled: Bool) {
+        if enabled == isApplied(id) {
+            tweakOverrides.removeValue(forKey: id)
         } else {
-            selectedTweaks.remove(id)
+            tweakOverrides[id] = enabled
+        }
+
+        // These two write the same key with opposite values, so keep them exclusive.
+        if id == .enableLiquidGlassLowPerformance, enabled {
+            tweakOverrides[.disableLiquidGlassLowPerformance] = isApplied(.disableLiquidGlassLowPerformance) ? false : nil
+        } else if id == .disableLiquidGlassLowPerformance, enabled {
+            tweakOverrides[.enableLiquidGlassLowPerformance] = isApplied(.enableLiquidGlassLowPerformance) ? false : nil
         }
     }
 
@@ -186,9 +214,24 @@ final class GestaltViewModel: ObservableObject {
     func applySelectedTweaks() {
         guard !isBusy, var pending = plist else { return }
         do {
-            for id in selectedTweaks {
-                guard let definition = GestaltTweakCatalog.definition(for: id) else { continue }
-                try pending.apply(definition: definition)
+            let startingPlist = plist
+            var newOriginals: [GestaltTweakID: [String: Any]] = [:]
+            var revertedIDs: [GestaltTweakID] = []
+
+            for definition in GestaltTweakCatalog.definitions {
+                guard let desired = tweakOverrides[definition.id] else { continue }
+                let applied = startingPlist?.matches(definition: definition) ?? false
+                if desired, !applied {
+                    if TweakStateStore.rememberedValues(for: definition.id) == nil,
+                       let originals = startingPlist?.originalValues(for: definition) {
+                        newOriginals[definition.id] = originals
+                    }
+                    try pending.apply(definition: definition)
+                } else if !desired, applied {
+                    let originals = TweakStateStore.rememberedValues(for: definition.id) ?? [:]
+                    pending.revert(definition: definition, originals: originals)
+                    revertedIDs.append(definition.id)
+                }
             }
             if let dynamicIslandSubtype {
                 try pending.setDynamicIslandSubtype(dynamicIslandSubtype)
@@ -297,8 +340,8 @@ final class GestaltViewModel: ObservableObject {
             }
 
             var riskyItems: [String] = []
-            for id in selectedTweaks {
-                if let definition = GestaltTweakCatalog.definition(for: id), definition.isRisky {
+            for definition in GestaltTweakCatalog.definitions where definition.isRisky {
+                if tweakOverrides[definition.id] == true {
                     riskyItems.append(definition.title)
                 }
             }
@@ -319,7 +362,13 @@ final class GestaltViewModel: ObservableObject {
                 if stagedIPadModeForWrite != nil {
                     IPadModeStore.save(ipadRecord)
                 }
-                self?.selectedTweaks.removeAll()
+                for (id, values) in newOriginals {
+                    TweakStateStore.remember(values, for: id)
+                }
+                for id in revertedIDs {
+                    TweakStateStore.forget(id)
+                }
+                self?.tweakOverrides.removeAll()
                 self?.dynamicIslandSubtype = nil
                 self?.changesModelName = false
                 self?.modelName = ""
@@ -526,12 +575,108 @@ final class GestaltViewModel: ObservableObject {
     }
 
     private func clearStagedState() {
-        selectedTweaks.removeAll()
+        tweakOverrides.removeAll()
         dynamicIslandSubtype = nil
         changesModelName = false
         modelName = ""
         stagesAIRegion = false
         stagedIPadMode = nil
+    }
+
+    /// Restores a single field from a backup, leaving every other key untouched.
+    func restoreChange(_ change: BackupChange, from backup: GestaltBackup) {
+        guard !isBusy, let current = plist else { return }
+        do {
+            let data = try GestaltBackupStore.data(for: backup)
+            var format = PropertyListSerialization.PropertyListFormat.binary
+            guard let dictionary = try PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: &format
+            ) as? [String: Any] else {
+                throw GestaltEditError.invalidBackup
+            }
+
+            let cacheExtraPrefix = "CacheExtra/"
+            let isCacheExtra = change.key.hasPrefix(cacheExtraPrefix)
+            let key = isCacheExtra ? String(change.key.dropFirst(cacheExtraPrefix.count)) : change.key
+            let sourceValues = isCacheExtra
+                ? (dictionary["CacheExtra"] as? [String: Any] ?? [:])
+                : dictionary
+
+            var pending = current
+            if let value = sourceValues[key] {
+                if isCacheExtra {
+                    pending.setCacheExtra(value, forKey: key)
+                } else {
+                    pending.setValue(value, forKey: key)
+                }
+            } else if isCacheExtra {
+                pending.removeCacheExtraValue(forKey: key)
+            } else {
+                pending.dict.removeValue(forKey: key)
+            }
+            requestWrite(pending, source: .restore)
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Human-readable snapshot of everything the app can observe right now.
+    var diagnosticsReport: String {
+        var lines: [String] = []
+        let bundle = Bundle.main
+        let version = bundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = bundle.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        let groupID = "group." + (bundle.bundleIdentifier ?? "me.ssus.gestaltedit")
+
+        lines.append("GestaltEdit \(version) (\(build))")
+        lines.append("iOS: \(os)")
+        lines.append(String(format: String(localized: "App Group: %@"), groupID))
+
+        if let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: groupID
+        ) {
+            lines.append(String(format: String(localized: "App Group container: %@"), container.path))
+        } else {
+            lines.append(String(localized: "App Group container unavailable (entitlement missing?)"))
+        }
+
+        if let plist {
+            lines.append(String(format: String(localized: "Read: OK, %lld CacheExtra keys"), plist.cacheExtraKeys.count))
+            let cacheData = plist.dict["CacheData"] as? Data
+            lines.append(String(format: String(localized: "CacheData: %@"), cacheData.map { "\($0.count) bytes" } ?? "missing"))
+        } else {
+            lines.append(String(localized: "Read: failed; the file could not be parsed"))
+        }
+
+        if let offset = DeviceClassLocator.cacheDataOffset() {
+            let value = plist?.deviceClassValue(at: offset)
+            lines.append(
+                String(
+                    format: String(localized: "Device class: offset %lld, value %@"),
+                    offset,
+                    value.map { String($0) } ?? "?"
+                )
+            )
+        } else {
+            lines.append(String(localized: "Device class: libMobileGestalt metadata unavailable"))
+        }
+
+        lines.append(
+            String(
+                format: String(localized: "iPadOS record: %@"),
+                IPadModeStore.load().map { String(describing: $0.mode) } ?? "none"
+            )
+        )
+        lines.append(String(format: String(localized: "Tweaks applied: %lld"), appliedTweakCount))
+        lines.append(String(format: String(localized: "Backups: %lld"), backups.count))
+
+        if let notice {
+            lines.append(String(format: String(localized: "Last message: %@"), notice.message))
+        }
+        return lines.joined(separator: "\n")
     }
 
     func delete(_ backup: GestaltBackup) {

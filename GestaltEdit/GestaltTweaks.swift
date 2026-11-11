@@ -242,6 +242,53 @@ extension GestaltPlist {
         }
     }
 
+    /// True when every key the definition writes already holds the expected value,
+    /// so the UI can show the real state of the file instead of the staged one.
+    func matches(definition: GestaltTweakDefinition) -> Bool {
+        let values = cacheExtra
+        for (key, expected) in definition.values {
+            guard let actual = values[key], Self.plistValuesEqual(actual, expected) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Puts a tweak back the way it was before this app wrote it. `originals`
+    /// comes from `TweakStateStore`; keys with no recorded original are removed,
+    /// which makes the system fall back to its own default.
+    mutating func revert(definition: GestaltTweakDefinition, originals: [String: Any]) {
+        for key in definition.values.keys {
+            if let original = originals[key] {
+                setCacheExtra(original, forKey: key)
+            } else {
+                removeCacheExtraValue(forKey: key)
+            }
+        }
+    }
+
+    /// Snapshot of the current values for a definition's keys; absent keys stay absent.
+    func originalValues(for definition: GestaltTweakDefinition) -> [String: Any] {
+        let values = cacheExtra
+        var snapshot: [String: Any] = [:]
+        for key in definition.values.keys {
+            if let value = values[key] {
+                snapshot[key] = value
+            }
+        }
+        return snapshot
+    }
+
+    static func plistValuesEqual(_ lhs: Any, _ rhs: Any) -> Bool {
+        if let lhs = lhs as? Data, let rhs = rhs as? Data {
+            return lhs == rhs
+        }
+        if let lhs = lhs as? NSObject, let rhs = rhs as? NSObject {
+            return lhs.isEqual(rhs)
+        }
+        return String(describing: lhs) == String(describing: rhs)
+    }
+
     /// Capability flags only. The device keeps reporting as an iPhone, so every
     /// app keeps its phone layout; whether iPadOS exposes the window UI on top of
     /// these flags depends on the system and has to be verified on-device.

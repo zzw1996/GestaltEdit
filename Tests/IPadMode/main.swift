@@ -124,6 +124,39 @@ func checkByteOffsetRestore() throws {
     precondition(plist.deviceClassValue(at: 0) == 1)
 }
 
+func checkTweakStateAndRevert() throws {
+    guard let definition = GestaltTweakCatalog.definition(for: .bootChime) else {
+        fatalError("Boot chime definition missing")
+    }
+    let key = "QHxt+hGLaBPbQJbXiUJX3w"
+
+    var plist = GestaltPlist(dict: ["CacheExtra": [key: 0]])
+    precondition(!plist.matches(definition: definition))
+    try plist.apply(definition: definition)
+    precondition(plist.matches(definition: definition))
+
+    // A recorded original value is written back verbatim.
+    plist.revert(definition: definition, originals: [key: 0])
+    precondition((plist.cacheExtra[key] as? Int) == 0)
+    precondition(!plist.matches(definition: definition))
+
+    // With no recorded original the key is removed, so the system default applies.
+    var fresh = GestaltPlist(dict: ["CacheExtra": [:]])
+    try fresh.apply(definition: definition)
+    fresh.revert(definition: definition, originals: [:])
+    precondition(fresh.cacheExtra[key] == nil)
+
+    // A definition with a non-integer expected value (iPad app compatibility) must
+    // still be detected through the array comparison path.
+    guard let ipadApps = GestaltTweakCatalog.definition(for: .iPadApps) else {
+        fatalError("iPad apps definition missing")
+    }
+    var apps = GestaltPlist(dict: ["CacheExtra": ["9MZ5AdH43csAUajl/dU+IQ": [1, 2]]])
+    precondition(apps.matches(definition: ipadApps))
+    apps.setCacheExtra([1], forKey: "9MZ5AdH43csAUajl/dU+IQ")
+    precondition(!apps.matches(definition: ipadApps))
+}
+
 checkModeKeys()
 checkDetection()
 checkRecordCoding()
@@ -133,5 +166,6 @@ checkNibbleAccessor()
 try checkDeviceClassBytes()
 checkLegacyRecordDecoding()
 try checkByteOffsetRestore()
+try checkTweakStateAndRevert()
 
-print("Passed: iPad mode keys, detection, record coding, restore guards, capability writes, nibble reads and exact device-class writes.")
+print("Passed: iPad mode keys, detection, record coding, restore guards, capability writes, nibble reads, exact device-class writes and tweak state/revert.")

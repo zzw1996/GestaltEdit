@@ -97,6 +97,21 @@ private struct TweakWorkbench: View {
                     ipadStatusSection
                     ipadUsageSection
 
+                    Section {
+                        if viewModel.pendingTweakChangeCount > 0 {
+                            LabeledContent(
+                                "Pending switches",
+                                value: "\(viewModel.pendingTweakChangeCount)"
+                            )
+                        }
+                        LabeledContent(
+                            "Applied tweaks",
+                            value: "\(viewModel.appliedTweakCount) / \(GestaltTweakCatalog.definitions.count)"
+                        )
+                    } footer: {
+                        Text("Switches show what the file on disk really holds. Turning one off writes the values recorded when GestaltEdit first enabled it, or removes the keys so the system default applies.")
+                    }
+
                     ForEach(GestaltTweakCategory.allCases.filter { $0 != .region }) { category in
                         tweakSection(category)
                     }
@@ -104,6 +119,12 @@ private struct TweakWorkbench: View {
                 }
 
                 Section(String(localized: "Developer")) {
+                    NavigationLink {
+                        DiagnosticsView()
+                    } label: {
+                        Label("Diagnostics", systemImage: "stethoscope")
+                    }
+
                     DeveloperFooter()
 
                     PlacardPromotionLink()
@@ -158,9 +179,13 @@ private struct TweakWorkbench: View {
                 TweakToggle(
                     definition: definition,
                     isOn: Binding(
-                        get: { viewModel.selectedTweaks.contains(definition.id) },
-                        set: { viewModel.setTweak(definition.id, enabled: $0) }
-                    )
+                        get: { viewModel.desiredState(for: definition.id) },
+                        set: { viewModel.setTweakDesired(definition.id, enabled: $0) }
+                    ),
+                    isApplied: viewModel.isApplied(definition.id),
+                    isPending: viewModel.tweakOverrides[definition.id].map {
+                        $0 != viewModel.isApplied(definition.id)
+                    } ?? false
                 )
             }
             if category == .region {
@@ -205,8 +230,12 @@ private struct TweakWorkbench: View {
                         .foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Unable to read MobileGestalt")
-                        Button("Reload", action: viewModel.load)
-                            .font(.footnote)
+                        HStack(spacing: 12) {
+                            Button("Reload", action: viewModel.load)
+                                .font(.footnote)
+                            NavigationLink("Diagnostics") { DiagnosticsView() }
+                                .font(.footnote)
+                        }
                     }
                 }
             }
@@ -487,6 +516,8 @@ private struct RewardCodeView: View {
 private struct TweakToggle: View {
     let definition: GestaltTweakDefinition
     @Binding var isOn: Bool
+    let isApplied: Bool
+    let isPending: Bool
 
     var body: some View {
         Toggle(isOn: $isOn) {
@@ -498,6 +529,20 @@ private struct TweakToggle: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                             .accessibilityLabel("High Risk")
+                    }
+                    if isPending {
+                        Text("Pending")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.tint.opacity(0.15), in: Capsule())
+                    } else if isApplied {
+                        Text("Applied")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.green.opacity(0.12), in: Capsule())
                     }
                 }
                 Text(definition.detail)
@@ -541,9 +586,13 @@ private struct BackupLibrary: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(viewModel.backups) { backup in
-                            BackupRow(backup: backup) {
-                                backupToRestore = backup
-                            }
+                            BackupRow(
+                                backup: backup,
+                                restore: { backupToRestore = backup },
+                                restoreChange: { change in
+                                    viewModel.restoreChange(change, from: backup)
+                                }
+                            )
                         }
                         .onDelete { offsets in
                             // Resolve every index before deleting: `delete` refreshes
@@ -595,6 +644,7 @@ private struct BackupLibrary: View {
 private struct BackupRow: View {
     let backup: GestaltBackup
     let restore: () -> Void
+    let restoreChange: (BackupChange) -> Void
 
     @State private var isExpanded = false
 
@@ -643,14 +693,25 @@ private struct BackupRow: View {
             if isExpanded, let changes = backup.changes, !changes.changes.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(changes.changes) { change in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(change.key)
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                            Text(change.detail)
-                                .font(.caption2)
-                                .fixedSize(horizontal: false, vertical: true)
+                        HStack(alignment: .top, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(change.key)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                Text(change.detail)
+                                    .font(.caption2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 6)
+                            Button {
+                                restoreChange(change)
+                            } label: {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Restore this field from the backup")
                         }
                     }
                     if changes.truncated {
