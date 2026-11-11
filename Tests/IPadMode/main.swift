@@ -87,11 +87,51 @@ func checkNibbleAccessor() {
     precondition(GestaltPlist(dict: [:]).deviceClassNibble(at: 0) == nil)
 }
 
+func checkDeviceClassBytes() throws {
+    var plist = GestaltPlist(dict: ["CacheData": Data([1, 0, 0, 0, 0, 0, 0, 0, 0x02])])
+    precondition(plist.deviceClassValue(at: 0) == 1)
+    try plist.setDeviceClassValue(3, at: 0)
+    precondition(plist.deviceClassValue(at: 0) == 3)
+    precondition(plist.deviceClassNibble(at: 0) == "0")
+    precondition(plist.deviceClassNibble(at: 1) == "3")
+
+    let patch = IPadDeviceClassPatch(nibbleOffset: 0, originalNibble: "1", byteOffset: 0, originalValue: 1)
+    precondition(plist.deviceClassMatches(patch))
+    precondition(plist.deviceClassValue(at: 5) == nil)
+}
+
+func checkLegacyRecordDecoding() {
+    let legacy = """
+    {"mode":"full","patch":{"nibbleOffset":611,"originalNibble":"1"},"previousValues":{},"writtenKeys":[]}
+    """
+    guard let data = legacy.data(using: .utf8),
+          let decoded = try? JSONDecoder().decode(IPadModeRecord.self, from: data) else {
+        fatalError("Legacy record did not decode")
+    }
+    precondition(decoded.patch?.byteOffset == nil)
+    precondition(decoded.patch?.originalValue == nil)
+}
+
+func checkByteOffsetRestore() throws {
+    var plist = GestaltPlist(dict: ["CacheData": Data([3, 0, 0, 0, 0, 0, 0, 0])])
+    let record = IPadModeRecord(
+        mode: .full,
+        patch: IPadDeviceClassPatch(nibbleOffset: 0, originalNibble: "1", byteOffset: 0, originalValue: 1),
+        previousValues: [:],
+        writtenKeys: GestaltPlist.keys(for: .full)
+    )
+    try plist.restoreIPadMode(using: record)
+    precondition(plist.deviceClassValue(at: 0) == 1)
+}
+
 checkModeKeys()
 checkDetection()
 checkRecordCoding()
 checkRestoreWithoutCacheDataFails()
 checkCapabilityFlagsAreWritten()
 checkNibbleAccessor()
+try checkDeviceClassBytes()
+checkLegacyRecordDecoding()
+try checkByteOffsetRestore()
 
-print("Passed: iPad mode keys, detection, record coding, restore guard, capability writes and nibble reads.")
+print("Passed: iPad mode keys, detection, record coding, restore guards, capability writes, nibble reads and exact device-class writes.")

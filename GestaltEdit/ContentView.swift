@@ -235,6 +235,9 @@ private struct TweakWorkbench: View {
             LabeledContent("Stage Manager flag", value: viewModel.ipadStatus.stageManagerEnabled
                 ? String(localized: "Enabled")
                 : String(localized: "Disabled"))
+            if let offset = viewModel.ipadStatus.resolvedOffset {
+                LabeledContent("Device class offset", value: "0x\(String(offset, radix: 16)) (\(offset))")
+            }
             Button {
                 UIPasteboard.general.string = diagnosticText
             } label: {
@@ -248,10 +251,17 @@ private struct TweakWorkbench: View {
     }
 
     private var deviceClassDescription: String {
+        if let value = viewModel.ipadStatus.deviceClassValue {
+            switch value {
+            case 3: return String(localized: "iPad (3)")
+            case 1: return String(localized: "iPhone (1)")
+            default: return String(localized: "Unknown value")
+            }
+        }
         switch viewModel.ipadStatus.deviceClassNibble {
-        case "3": String(localized: "iPad (3)")
-        case "1": String(localized: "iPhone (1)")
-        default: String(localized: "Unknown (not written by GestaltEdit)")
+        case "3": return String(localized: "iPad (3)")
+        case "1": return String(localized: "iPhone (1)")
+        default: return String(localized: "Unknown (not written by GestaltEdit)")
         }
     }
 
@@ -260,7 +270,9 @@ private struct TweakWorkbench: View {
         var lines = [
             "GestaltEdit iPadOS diagnostics",
             "mode=\(status.mode)",
-            "deviceClass=\(status.deviceClassNibble ?? "unknown")",
+            "deviceClassValue=\(status.deviceClassValue.map { String($0) } ?? "unknown")",
+            "deviceClassNibble=\(status.deviceClassNibble ?? "unknown")",
+            "offset=\(status.resolvedOffset.map { "0x\(String($0, radix: 16))" } ?? "unresolved")",
             "identity=\(status.hasIdentity)",
             "multitaskingFlags=\(status.capabilityCount)/4",
             "stageManager=\(status.stageManagerEnabled)"

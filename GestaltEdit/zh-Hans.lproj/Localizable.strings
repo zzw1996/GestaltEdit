@@ -200,6 +200,8 @@
 "iPad (3)" = "iPad（3）";
 "iPhone (1)" = "iPhone（1）";
 "Unknown (not written by GestaltEdit)" = "未知（非 GestaltEdit 写入）";
+"Unknown value" = "未知数值";
+"Device class offset" = "设备类偏移";
 "Copy Diagnostics" = "复制诊断信息";
 "Values are read back from the plist on disk, so they reflect what the system will use after the next respring." = "以上数值从磁盘上的 plist 读回，即下次注销后系统实际会使用的状态。";
 "How to Use Windows and Split View" = "如何使用窗口与分屏";

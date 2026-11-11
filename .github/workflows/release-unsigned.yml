@@ -41,7 +41,7 @@ jobs:
       - name: Run iPad mode tests
         run: |
           xcrun swiftc GestaltEdit/GestaltModels.swift GestaltEdit/GestaltTweaks.swift \
-            Tests/IPadMode/main.swift \
+            GestaltEdit/DeviceClassLocator.swift Tests/IPadMode/main.swift \
             -o "$RUNNER_TEMP/gestalt-ipad-mode-tests"
           "$RUNNER_TEMP/gestalt-ipad-mode-tests"
 

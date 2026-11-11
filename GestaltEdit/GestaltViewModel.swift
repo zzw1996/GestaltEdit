@@ -16,6 +16,8 @@ struct IPadStatusSnapshot {
     let stageManagerEnabled: Bool
     let capabilityCount: Int
     let deviceClassNibble: String?
+    let deviceClassValue: UInt64?
+    let resolvedOffset: Int?
     let recordedPatch: IPadDeviceClassPatch?
 }
 
@@ -94,12 +96,16 @@ final class GestaltViewModel: ObservableObject {
         }.count
         let patch = IPadModeStore.load()?.patch
         let nibble = patch.flatMap { plist?.deviceClassNibble(at: $0.nibbleOffset) }
+        let resolvedOffset = DeviceClassLocator.cacheDataOffset()
+        let value = resolvedOffset.flatMap { plist?.deviceClassValue(at: $0) }
         return IPadStatusSnapshot(
             mode: currentIPadMode,
             hasIdentity: identity,
             stageManagerEnabled: stageManager,
             capabilityCount: capabilityCount,
             deviceClassNibble: nibble,
+            deviceClassValue: value,
+            resolvedOffset: resolvedOffset,
             recordedPatch: patch
         )
     }
@@ -234,7 +240,7 @@ final class GestaltViewModel: ObservableObject {
                 }
             }
 
-            let expectedNibbleOffset = ipadRecord?.patch?.nibbleOffset
+            let expectedPatch = ipadRecord?.patch
             let ipadValidation: ((GestaltPlist) throws -> Void)?
             if let staged = stagedIPadMode {
                 ipadValidation = { verifiedPlist in
@@ -243,8 +249,8 @@ final class GestaltViewModel: ObservableObject {
                         guard verifiedPlist.appliedIPadMode == .full else {
                             throw GestaltEditError.verificationFailed
                         }
-                        if let expectedNibbleOffset,
-                           verifiedPlist.deviceClassNibble(at: expectedNibbleOffset) != "3" {
+                        if let expectedPatch,
+                           !verifiedPlist.deviceClassMatches(expectedPatch) {
                             throw GestaltEditError.verificationFailed
                         }
                     case .capabilities:

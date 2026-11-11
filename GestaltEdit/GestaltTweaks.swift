@@ -37,6 +37,18 @@ enum IPadMode: String, Codable, CaseIterable, Identifiable {
 struct IPadDeviceClassPatch: Codable, Equatable {
     let nibbleOffset: Int
     let originalNibble: String
+    /// Set when the write used the exact 8-byte `DeviceClassNumber` value.
+    /// Records created before this field existed decode with nil and fall back
+    /// to the nibble path.
+    let byteOffset: Int?
+    let originalValue: UInt64?
+
+    init(nibbleOffset: Int, originalNibble: String, byteOffset: Int? = nil, originalValue: UInt64? = nil) {
+        self.nibbleOffset = nibbleOffset
+        self.originalNibble = originalNibble
+        self.byteOffset = byteOffset
+        self.originalValue = originalValue
+    }
 }
 
 /// What this app wrote for a given iPadOS mode, and what the fields looked like
@@ -178,6 +190,40 @@ extension GestaltPlist {
         return index % 2 == 0 ? String(hex.first!) : String(hex.last!)
     }
 
+    /// Reads `DeviceClassNumber` as the 8-byte little-endian integer the system
+    /// actually consumes, at the offset libMobileGestalt reports.
+    func deviceClassValue(at byteOffset: Int) -> UInt64? {
+        guard let cacheData = dict["CacheData"] as? Data,
+              byteOffset >= 0, byteOffset + 8 <= cacheData.count else { return nil }
+        var value: UInt64 = 0
+        for index in 0..<8 {
+            value |= UInt64(cacheData[cacheData.startIndex + byteOffset + index])
+                << (8 * UInt64(index))
+        }
+        return value
+    }
+
+    mutating func setDeviceClassValue(_ value: UInt64, at byteOffset: Int) throws {
+        guard var cacheData = dict["CacheData"] as? Data,
+              byteOffset >= 0, byteOffset + 8 <= cacheData.count else {
+            throw GestaltTweakError.invalidCacheDataOffset
+        }
+        for index in 0..<8 {
+            cacheData[cacheData.startIndex + byteOffset + index] =
+                UInt8((value >> (8 * UInt64(index))) & 0xff)
+        }
+        dict["CacheData"] = cacheData
+    }
+
+    /// True when the recorded patch is reflected in the current file.
+    func deviceClassMatches(_ patch: IPadDeviceClassPatch) -> Bool {
+        if let byteOffset = patch.byteOffset {
+            return deviceClassValue(at: byteOffset) == 3
+        }
+        guard patch.nibbleOffset > 0 else { return false }
+        return deviceClassNibble(at: patch.nibbleOffset) == "3"
+    }
+
     /// Which mode the current file already carries, if any.
     var appliedIPadMode: IPadMode? {
         let values = cacheExtra
@@ -206,11 +252,28 @@ extension GestaltPlist {
     }
 
     /// Full iPadOS mode: capability flags plus the iPad device class in CacheData.
+    /// Prefers the exact 8-byte value located through libMobileGestalt metadata,
+    /// and falls back to the legacy nibble search only when that is unavailable.
     mutating func enableIPadMode() throws -> IPadDeviceClassPatch {
         for key in Self.ipadMultitaskingKeys {
             setCacheExtra(1, forKey: key)
         }
         setCacheExtra(1, forKey: Self.ipadIdentityKey)
+
+        if let byteOffset = DeviceClassLocator.cacheDataOffset(),
+           let current = deviceClassValue(at: byteOffset),
+           current == 1 || current == 3 {
+            if current != 3 {
+                try setDeviceClassValue(3, at: byteOffset)
+            }
+            return IPadDeviceClassPatch(
+                nibbleOffset: byteOffset * 2,
+                originalNibble: current == 3 ? "3" : "1",
+                byteOffset: byteOffset,
+                originalValue: current
+            )
+        }
+
         let result = try patchDeviceClassNumber(to: "3")
         return IPadDeviceClassPatch(nibbleOffset: result.offset, originalNibble: result.previous)
     }
@@ -279,6 +342,16 @@ extension GestaltPlist {
     /// searching again, and refuses to write when the stored position no longer
     /// matches what this app wrote.
     private mutating func restoreDeviceClassNumber(using patch: IPadDeviceClassPatch) throws {
+        if let byteOffset = patch.byteOffset, let original = patch.originalValue {
+            guard let current = deviceClassValue(at: byteOffset) else {
+                throw GestaltTweakError.invalidCacheDataOffset
+            }
+            if current == original { return }
+            guard current == 3 else { throw GestaltTweakError.invalidCacheDataOffset }
+            try setDeviceClassValue(original, at: byteOffset)
+            return
+        }
+
         var nibbles = try Self.cacheDataNibbles(in: dict)
         let offset = patch.nibbleOffset
         guard offset > 0, offset + 1 < nibbles.count,
