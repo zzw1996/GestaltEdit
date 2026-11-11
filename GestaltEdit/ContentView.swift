@@ -277,7 +277,7 @@ private struct TweakWorkbench: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("1. Settings → Multitasking & Gestures → Windowed Apps.")
                     Text("2. Turn off Rotation Lock in Control Center before testing orientation.")
-                    Text("3. Drag the top edge of a window to the top or bottom of the screen to split vertically in portrait, or to a side edge to split side by side in landscape.")
+                    Text("3. iPadOS only tiles side by side: drag a window to the left or right edge. There is no top/bottom tiling gesture, so in portrait place two windows freely, one above the other, by dragging their top edges.")
                     Text("4. Drag the divider to resize both halves; the red, yellow and green controls close, minimise and zoom a window.")
                 }
                 .font(.caption)
