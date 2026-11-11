@@ -53,6 +53,7 @@ jobs:
 
       - name: Build unsigned archive
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project GestaltEdit.xcodeproj \
             -scheme GestaltEdit \
@@ -61,7 +62,18 @@ jobs:
             -archivePath "$RUNNER_TEMP/GestaltEdit.xcarchive" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Surface compile errors
+        if: failure()
+        run: |
+          if [ -f "$RUNNER_TEMP/build.log" ]; then
+            grep -n "error:" "$RUNNER_TEMP/build.log" | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            echo "----- tail of build log -----"
+            tail -n 120 "$RUNNER_TEMP/build.log"
+          fi
 
       - name: Package unsigned IPA
         run: |
