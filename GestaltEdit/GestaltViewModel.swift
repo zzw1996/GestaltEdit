@@ -66,6 +66,12 @@ final class GestaltViewModel: ObservableObject {
     }
 
     func setIPadMode(_ choice: IPadModeChoice) {
+        // Capabilities-only is no longer offered, but a stale flag set from an
+        // earlier build must still be clearable through Off.
+        if currentIPadMode == .capabilities {
+            stagedIPadMode = choice == .off ? .off : choice
+            return
+        }
         stagedIPadMode = choice == currentIPadMode ? nil : choice
     }
 
@@ -221,7 +227,7 @@ final class GestaltViewModel: ObservableObject {
                 ipadValidation = nil
             }
 
-            save(pending, expectedAIRegion: expectedConfiguration, validation: ipadValidation) { [weak self] in
+            save(pending, expectedAIRegion: expectedConfiguration, source: .tweaks, validation: ipadValidation) { [weak self] in
                 if stagedIPadModeForWrite != nil {
                     IPadModeStore.save(ipadRecord)
                 }
@@ -239,7 +245,7 @@ final class GestaltViewModel: ObservableObject {
 
     func applyChanges() {
         guard !isBusy, let plist else { return }
-        save(plist, expectedAIRegion: nil)
+        save(plist, expectedAIRegion: nil, source: .fieldEditor)
     }
 
     func createBackup() {
@@ -311,7 +317,7 @@ final class GestaltViewModel: ObservableObject {
             ) as? [String: Any] else {
                 throw GestaltEditError.invalidBackup
             }
-            save(GestaltPlist(dict: dictionary), expectedAIRegion: nil)
+            save(GestaltPlist(dict: dictionary), expectedAIRegion: nil, source: .restore)
         } catch {
             report(error)
         }
@@ -337,6 +343,7 @@ final class GestaltViewModel: ObservableObject {
     private func save(
         _ pendingPlist: GestaltPlist,
         expectedAIRegion: AIRegionConfiguration?,
+        source: BackupChangeSource = .tweaks,
         validation: ((GestaltPlist) throws -> Void)? = nil,
         completion: (() -> Void)? = nil
     ) {
@@ -345,7 +352,18 @@ final class GestaltViewModel: ObservableObject {
 
         do {
             let originalData = try access.readGestaltData()
-            _ = try GestaltBackupStore.create(from: originalData)
+            var format = PropertyListSerialization.PropertyListFormat.binary
+            let originalDictionary = (try? PropertyListSerialization.propertyList(
+                from: originalData,
+                options: [],
+                format: &format
+            )) as? [String: Any] ?? [:]
+            let changeSet = GestaltChangeDiff.changes(
+                old: originalDictionary,
+                new: pendingPlist.dict,
+                source: source
+            )
+            let originalBackup = try GestaltBackupStore.create(from: originalData)
             try access.saveGestalt(pendingPlist.dict)
             guard let verification = try access.readGestalt() as? [String: Any] else {
                 throw GestaltEditError.invalidPlist
@@ -371,6 +389,10 @@ final class GestaltViewModel: ObservableObject {
             }
 
             try validation?(verifiedPlist)
+
+            if changeSet.total > 0 {
+                try? GestaltBackupStore.attach(changeSet, to: originalBackup)
+            }
 
             plist = verifiedPlist
             isDirty = false

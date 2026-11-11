@@ -190,12 +190,14 @@ private struct TweakWorkbench: View {
             Picker(
                 "iPadOS Mode",
                 selection: Binding(
-                    get: { viewModel.stagedIPadMode ?? viewModel.currentIPadMode },
+                    get: {
+                        viewModel.stagedIPadMode
+                            ?? (viewModel.currentIPadMode == .full ? .full : .off)
+                    },
                     set: { viewModel.setIPadMode($0) }
                 )
             ) {
                 Text("Off").tag(IPadModeChoice.off)
-                Text("Capabilities Only").tag(IPadModeChoice.capabilities)
                 Text("Full iPadOS").tag(IPadModeChoice.full)
             }
             .pickerStyle(.inline)
@@ -208,13 +210,16 @@ private struct TweakWorkbench: View {
     }
 
     private var ipadModeFooter: String {
+        if viewModel.stagedIPadMode == nil, viewModel.currentIPadMode == .capabilities {
+            return String(localized: "Capability flags left by an earlier version do not bring up the window UI. Choose Off to clear them.")
+        }
         switch viewModel.stagedIPadMode ?? viewModel.currentIPadMode {
         case .off:
-            String(localized: "iPhone device class without iPad multitasking flags. Apps keep phone layouts.")
+            return String(localized: "iPhone device class without iPad multitasking flags. Apps keep phone layouts.")
         case .capabilities:
-            String(localized: "Sets the multitasking capability flags only and keeps the iPhone device class, so apps keep phone layouts. Window features are experimental and may not appear without the iPad device class.")
+            return String(localized: "Capability flags alone were verified not to bring up the window UI.")
         case .full:
-            String(localized: "Switches the device class to iPad. iPadOS window features become available, but apps that support iPad adopt tablet layouts.")
+            return String(localized: "Switches the device class to iPad. iPadOS window features require this; iPhone-only apps keep their phone layouts, but apps that support iPad adopt tablet layouts.")
         }
     }
 
@@ -448,24 +453,76 @@ private struct BackupRow: View {
     let backup: GestaltBackup
     let restore: () -> Void
 
+    @State private var isExpanded = false
+
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(backup.createdAt, format: .dateTime.year().month().day().hour().minute().second())
-                Text(ByteCountFormatter.string(fromByteCount: backup.byteCount, countStyle: .file))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(backup.createdAt, format: .dateTime.year().month().day().hour().minute().second())
+                    Text(ByteCountFormatter.string(fromByteCount: backup.byteCount, countStyle: .file))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let changes = backup.changes {
+                        Button {
+                            withAnimation { isExpanded.toggle() }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                    .font(.caption2)
+                                Text(changes.total == 0
+                                     ? String(localized: "No changes detected")
+                                     : changes.summary)
+                                    .font(.caption)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Show change details")
+                    } else {
+                        Text("No change log")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+                ShareLink(item: backup.url) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Export Backup")
+                Button("Restore", action: restore)
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityLabel("Restore Backup")
             }
-            Spacer()
-            ShareLink(item: backup.url) {
-                Image(systemName: "square.and.arrow.up")
+
+            if isExpanded, let changes = backup.changes, !changes.changes.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(changes.changes) { change in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(change.key)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                            Text(change.detail)
+                                .font(.caption2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if changes.truncated {
+                        Text(
+                            String(
+                                format: String(localized: "Showing the first %lld changes only."),
+                                GestaltChangeDiff.limit
+                            )
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.leading, 6)
             }
-            .accessibilityLabel("Export Backup")
-            Button("Restore", action: restore)
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.small)
-            .accessibilityLabel("Restore Backup")
         }
     }
 }

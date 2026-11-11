@@ -4,6 +4,8 @@ struct GestaltBackup: Identifiable, Hashable {
     let url: URL
     let createdAt: Date
     let byteCount: Int64
+    /// What was written right after this snapshot, when the app knows it.
+    let changes: BackupChangeSet?
 
     var id: URL { url }
     var name: String { url.deletingPathExtension().lastPathComponent }
@@ -40,6 +42,13 @@ enum GestaltBackupStore {
 
     static func delete(_ backup: GestaltBackup) throws {
         try FileManager.default.removeItem(at: backup.url)
+        try? FileManager.default.removeItem(at: sidecarURL(for: backup.url))
+    }
+
+    /// Records which fields the write that followed this snapshot changed.
+    static func attach(_ changes: BackupChangeSet, to backup: GestaltBackup) throws {
+        let data = try JSONEncoder().encode(changes)
+        try data.write(to: sidecarURL(for: backup.url), options: .atomic)
     }
 
     private static func backupDirectory() throws -> URL {
@@ -59,7 +68,17 @@ enum GestaltBackupStore {
         return GestaltBackup(
             url: url,
             createdAt: values.creationDate ?? .distantPast,
-            byteCount: Int64(values.fileSize ?? 0)
+            byteCount: Int64(values.fileSize ?? 0),
+            changes: changes(for: url)
         )
+    }
+
+    private static func sidecarURL(for url: URL) -> URL {
+        url.deletingPathExtension().appendingPathExtension("changes.json")
+    }
+
+    private static func changes(for url: URL) -> BackupChangeSet? {
+        guard let data = try? Data(contentsOf: sidecarURL(for: url)) else { return nil }
+        return try? JSONDecoder().decode(BackupChangeSet.self, from: data)
     }
 }

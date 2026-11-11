@@ -45,6 +45,12 @@ jobs:
             -o "$RUNNER_TEMP/gestalt-ipad-mode-tests"
           "$RUNNER_TEMP/gestalt-ipad-mode-tests"
 
+      - name: Run backup change tests
+        run: |
+          xcrun swiftc GestaltEdit/BackupChanges.swift Tests/BackupChanges/main.swift \
+            -o "$RUNNER_TEMP/gestalt-backup-change-tests"
+          "$RUNNER_TEMP/gestalt-backup-change-tests"
+
       - name: Build unsigned archive
         run: |
           xcodebuild archive \

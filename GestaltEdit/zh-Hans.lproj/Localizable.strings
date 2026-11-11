@@ -169,6 +169,22 @@
 "Capabilities Only" = "仅多任务能力";
 "Full iPadOS" = "完整 iPadOS";
 "iPhone device class without iPad multitasking flags. Apps keep phone layouts." = "保持 iPhone 设备类型，不写入 iPad 多任务标记。应用维持手机布局。";
-"Sets the multitasking capability flags only and keeps the iPhone device class, so apps keep phone layouts. Window features are experimental and may not appear without the iPad device class." = "只写入多任务能力标记，不改变 iPhone 设备类型，因此应用维持手机布局。窗口功能为实验性，在未切换设备类型时可能不会出现。";
-"Switches the device class to iPad. iPadOS window features become available, but apps that support iPad adopt tablet layouts." = "将设备类型切换为 iPad。可获得 iPadOS 窗口功能，但支持 iPad 的应用会改用平板布局。";
+"Capability flags left by an earlier version do not bring up the window UI. Choose Off to clear them." = "旧版本写入的能力标记无法唤出窗口界面，选择「不启用」可清除。";
+"Capability flags alone were verified not to bring up the window UI." = "已实测：仅写能力标记无法唤出窗口界面。";
+"Switches the device class to iPad. iPadOS window features require this; iPhone-only apps keep their phone layouts, but apps that support iPad adopt tablet layouts." = "将设备类型切换为 iPad。iPadOS 窗口功能必须如此才能生效；仅支持 iPhone 的应用仍保持手机布局，支持 iPad 的应用会改用平板布局。";
 "This iPadOS mode was not applied by GestaltEdit, so it cannot be reverted here. Restore a backup instead." = "当前 iPadOS 模式不是由 GestaltEdit 写入的，无法在此还原。请改用备份恢复。";
+
+"Tweaks Applied" = "应用预设";
+"Field Editor" = "字段编辑器";
+"Backup Restored" = "恢复备份";
+"Automation" = "自动化";
+"added → %@" = "新增 → %@";
+"removed (was %@)" = "删除（原为 %@）";
+"%@ · +%lld ~%lld -%lld" = "%@ · 新增 %lld / 修改 %lld / 删除 %lld";
+"%lld bytes" = "%lld 字节";
+"%lld fields" = "%lld 个字段";
+"%lld items" = "%lld 项";
+"No changes detected" = "未检测到变更";
+"No change log" = "无变更记录";
+"Show change details" = "展开变更明细";
+"Showing the first %lld changes only." = "仅显示前 %lld 条变更。";
