@@ -21,6 +21,23 @@ struct IPadStatusSnapshot {
     let recordedPatch: IPadDeviceClassPatch?
 }
 
+/// Key-level changes shown to the user before anything is written.
+struct WritePreview: Identifiable {
+    let id = UUID()
+    let source: BackupChangeSource
+    let changeSet: BackupChangeSet
+    let riskyItems: [String]
+}
+
+/// A write that has been prepared but is waiting for confirmation.
+struct PendingWrite {
+    let plist: GestaltPlist
+    let expectedAIRegion: AIRegionConfiguration?
+    let source: BackupChangeSource
+    let validation: ((GestaltPlist) throws -> Void)?
+    let completion: (() -> Void)?
+}
+
 @MainActor
 final class GestaltViewModel: ObservableObject {
     @Published var plist: GestaltPlist?
@@ -36,8 +53,19 @@ final class GestaltViewModel: ObservableObject {
     @Published var stagesAIRegion = false
     @Published var stagedIPadMode: IPadModeChoice?
     @Published private(set) var isRespringing = false
+    @Published var writePreview: WritePreview?
+    @Published private(set) var lastAutoBackupName: String?
 
     private let access = GestaltAccess.shared()
+    private var pendingWrite: PendingWrite?
+    private var respringTimeout: Task<Void, Never>?
+    /// What the file on disk held when it was last read, used to diff staged edits.
+    private var baselineDictionary: [String: Any] = [:]
+    private static let lastAutoBackupKey = "LastAutoBackupName"
+
+    init() {
+        lastAutoBackupName = UserDefaults.standard.string(forKey: Self.lastAutoBackupKey)
+    }
 
     var aiRegionProfile: AIRegionProfile? {
         plist.flatMap(AIRegionProfile.init(plist:))
@@ -123,6 +151,7 @@ final class GestaltViewModel: ObservableObject {
                 throw GestaltEditError.invalidPlist
             }
             plist = GestaltPlist(dict: dictionary)
+            baselineDictionary = dictionary
             isDirty = false
             refreshBackups()
         } catch {
@@ -267,7 +296,26 @@ final class GestaltViewModel: ObservableObject {
                 ipadValidation = nil
             }
 
-            save(pending, expectedAIRegion: expectedConfiguration, source: .tweaks, validation: ipadValidation) { [weak self] in
+            var riskyItems: [String] = []
+            for id in selectedTweaks {
+                if let definition = GestaltTweakCatalog.definition(for: id), definition.isRisky {
+                    riskyItems.append(definition.title)
+                }
+            }
+            if stagedIPadMode == .full {
+                riskyItems.append(String(localized: "Full iPadOS mode"))
+            }
+            if stagesAIRegion, requiresForcedAIEnable {
+                riskyItems.append(String(localized: "Forced Siri AI spoofing"))
+            }
+
+            requestWrite(
+                pending,
+                expectedAIRegion: expectedConfiguration,
+                source: .tweaks,
+                validation: ipadValidation,
+                riskyItems: riskyItems
+            ) { [weak self] in
                 if stagedIPadModeForWrite != nil {
                     IPadModeStore.save(ipadRecord)
                 }
@@ -285,7 +333,108 @@ final class GestaltViewModel: ObservableObject {
 
     func applyChanges() {
         guard !isBusy, let plist else { return }
-        save(plist, expectedAIRegion: nil, source: .fieldEditor)
+        requestWrite(plist, source: .fieldEditor)
+    }
+
+    // MARK: - Previewed writes
+
+    private func requestWrite(
+        _ pendingPlist: GestaltPlist,
+        expectedAIRegion: AIRegionConfiguration? = nil,
+        source: BackupChangeSource,
+        validation: ((GestaltPlist) throws -> Void)? = nil,
+        riskyItems: [String] = [],
+        completion: (() -> Void)? = nil
+    ) {
+        let changeSet = GestaltChangeDiff.changes(
+            old: baselineDictionary,
+            new: pendingPlist.dict,
+            source: source
+        )
+        guard changeSet.total > 0 || !riskyItems.isEmpty else {
+            notice = GestaltNotice(
+                kind: .info,
+                message: String(localized: "Nothing would change, so nothing was written.")
+            )
+            return
+        }
+        pendingWrite = PendingWrite(
+            plist: pendingPlist,
+            expectedAIRegion: expectedAIRegion,
+            source: source,
+            validation: validation,
+            completion: completion
+        )
+        writePreview = WritePreview(
+            source: source,
+            changeSet: changeSet,
+            riskyItems: riskyItems
+        )
+    }
+
+    func confirmWrite() {
+        guard let pending = pendingWrite else { return }
+        pendingWrite = nil
+        writePreview = nil
+        save(
+            pending.plist,
+            expectedAIRegion: pending.expectedAIRegion,
+            source: pending.source,
+            validation: pending.validation,
+            completion: pending.completion
+        )
+    }
+
+    func cancelWrite() {
+        pendingWrite = nil
+        writePreview = nil
+    }
+
+    // MARK: - Respring lifecycle
+
+    func beginRespring() {
+        isRespringing = true
+        respringTimeout?.cancel()
+        respringTimeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled else { return }
+            self?.endRespring()
+        }
+    }
+
+    func endRespring() {
+        respringTimeout?.cancel()
+        respringTimeout = nil
+        if isRespringing {
+            isRespringing = false
+        }
+    }
+
+    func manualRespring() {
+        guard !isBusy else { return }
+        beginRespring()
+    }
+
+    // MARK: - Undo
+
+    var lastAutoBackup: GestaltBackup? {
+        guard let name = lastAutoBackupName else { return nil }
+        return backups.first { $0.name == name }
+    }
+
+    func undoLastWrite() {
+        guard !isBusy, let backup = lastAutoBackup else { return }
+        restore(backup, clearingUndoMarker: true)
+    }
+
+    private func rememberAutoBackup(_ backup: GestaltBackup) {
+        lastAutoBackupName = backup.name
+        UserDefaults.standard.set(backup.name, forKey: Self.lastAutoBackupKey)
+    }
+
+    private func clearUndoMarker() {
+        lastAutoBackupName = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastAutoBackupKey)
     }
 
     func createBackup() {
@@ -346,6 +495,10 @@ final class GestaltViewModel: ObservableObject {
     }
 
     func restore(_ backup: GestaltBackup) {
+        restore(backup, clearingUndoMarker: false)
+    }
+
+    private func restore(_ backup: GestaltBackup, clearingUndoMarker: Bool) {
         guard !isBusy else { return }
         do {
             let data = try GestaltBackupStore.data(for: backup)
@@ -354,21 +507,50 @@ final class GestaltViewModel: ObservableObject {
                 from: data,
                 options: [],
                 format: &format
-            ) as? [String: Any] else {
+            ) as? [String: Any],
+                  dictionary["CacheExtra"] is [String: Any] else {
                 throw GestaltEditError.invalidBackup
             }
-            save(GestaltPlist(dict: dictionary), expectedAIRegion: nil, source: .restore)
+            save(
+                GestaltPlist(dict: dictionary),
+                expectedAIRegion: nil,
+                source: .restore,
+                completion: { [weak self] in
+                    self?.clearStagedState()
+                    if clearingUndoMarker { self?.clearUndoMarker() }
+                }
+            )
         } catch {
             report(error)
         }
     }
 
+    private func clearStagedState() {
+        selectedTweaks.removeAll()
+        dynamicIslandSubtype = nil
+        changesModelName = false
+        modelName = ""
+        stagesAIRegion = false
+        stagedIPadMode = nil
+    }
+
     func delete(_ backup: GestaltBackup) {
-        do {
-            try GestaltBackupStore.delete(backup)
-            refreshBackups()
-        } catch {
-            report(error)
+        delete([backup])
+    }
+
+    func delete(_ backups: [GestaltBackup]) {
+        guard !backups.isEmpty else { return }
+        var failure: Error?
+        for backup in backups {
+            do {
+                try GestaltBackupStore.delete(backup)
+            } catch {
+                failure = failure ?? error
+            }
+        }
+        refreshBackups()
+        if let failure {
+            report(failure)
         }
     }
 
@@ -389,11 +571,13 @@ final class GestaltViewModel: ObservableObject {
     ) {
         isBusy = true
         notice = nil
+        var wrote = false
+        var originalDictionary: [String: Any] = [:]
 
         do {
             let originalData = try access.readGestaltData()
             var format = PropertyListSerialization.PropertyListFormat.binary
-            let originalDictionary = (try? PropertyListSerialization.propertyList(
+            originalDictionary = (try? PropertyListSerialization.propertyList(
                 from: originalData,
                 options: [],
                 format: &format
@@ -405,6 +589,7 @@ final class GestaltViewModel: ObservableObject {
             )
             let originalBackup = try GestaltBackupStore.create(from: originalData)
             try access.saveGestalt(pendingPlist.dict)
+            wrote = true
             guard let verification = try access.readGestalt() as? [String: Any] else {
                 throw GestaltEditError.invalidPlist
             }
@@ -435,15 +620,43 @@ final class GestaltViewModel: ObservableObject {
             }
 
             plist = verifiedPlist
+            baselineDictionary = verification
             isDirty = false
+            rememberAutoBackup(originalBackup)
             completion?()
             refreshBackups()
             isBusy = false
-            isRespringing = true
+            beginRespring()
         } catch {
             isDirty = true
-            report(error)
             isBusy = false
+            if wrote, !originalDictionary.isEmpty {
+                let rolledBack = rollback(to: originalDictionary)
+                if rolledBack { isDirty = false }
+                let suffix = rolledBack
+                    ? String(localized: "The write did not verify, so the previous file was restored automatically.")
+                    : String(localized: "The write did not verify and the automatic rollback failed. Restore the newest backup from the Restore tab.")
+                notice = GestaltNotice(
+                    kind: .error,
+                    message: error.localizedDescription + "\n\n" + suffix
+                )
+            } else {
+                report(error)
+            }
+        }
+    }
+
+    /// Puts the file back using the in-memory copy taken before the write.
+    private func rollback(to dictionary: [String: Any]) -> Bool {
+        do {
+            try access.saveGestalt(dictionary)
+            if let verification = try access.readGestalt() as? [String: Any] {
+                plist = GestaltPlist(dict: verification)
+                baselineDictionary = verification
+            }
+            return true
+        } catch {
+            return false
         }
     }
 

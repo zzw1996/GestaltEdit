@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: GestaltViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -21,8 +22,35 @@ struct ContentView: View {
         }
         .overlay {
             if viewModel.isRespringing {
-                NeoSpringView()
+                ZStack(alignment: .bottom) {
+                    NeoSpringView()
+
+                    Button {
+                        viewModel.endRespring()
+                    } label: {
+                        Text("Respring is not responding? Tap here")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 16)
+                            .background(.white.opacity(0.15), in: Capsule())
+                    }
+                    .padding(.bottom, 40)
+                    .accessibilityHint("Closes the overlay and returns to the app.")
+                }
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                viewModel.endRespring()
+            }
+        }
+        .sheet(item: $viewModel.writePreview) { preview in
+            WritePreviewSheet(
+                preview: preview,
+                onCancel: { viewModel.cancelWrite() },
+                onConfirm: { viewModel.confirmWrite() }
+            )
         }
         .alert(item: $viewModel.notice) { notice in
             Alert(
@@ -41,6 +69,25 @@ private struct TweakWorkbench: View {
         NavigationStack {
             List {
                 Section { deviceStatus }
+
+                if let backup = viewModel.lastAutoBackup {
+                    Section {
+                        Button {
+                            viewModel.undoLastWrite()
+                        } label: {
+                            Label("Undo Last Write", systemImage: "arrow.uturn.backward.circle")
+                        }
+                        .disabled(viewModel.isBusy)
+
+                        Text(backup.name)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    } header: {
+                        Text("Safety")
+                    } footer: {
+                        Text("Restores the snapshot taken right before the last write, then resprings.")
+                    }
+                }
 
                 if viewModel.plist != nil {
                     tweakSection(.region)
@@ -84,6 +131,17 @@ private struct TweakWorkbench: View {
             }
             .navigationTitle("MobileGestalt")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        viewModel.manualRespring()
+                    } label: {
+                        Image(systemName: "arrow.clockwise.circle")
+                    }
+                    .accessibilityLabel("Respring")
+                    .disabled(viewModel.isBusy)
+                }
+            }
             .refreshable { viewModel.load() }
             .safeAreaInset(edge: .bottom) {
                 if viewModel.hasStagedTweaks {
@@ -488,7 +546,13 @@ private struct BackupLibrary: View {
                             }
                         }
                         .onDelete { offsets in
-                            for index in offsets { viewModel.delete(viewModel.backups[index]) }
+                            // Resolve every index before deleting: `delete` refreshes
+                            // the backing array, so deleting by index inside the loop
+                            // hits stale positions or crashes.
+                            let selected = offsets.compactMap { index in
+                                viewModel.backups.indices.contains(index) ? viewModel.backups[index] : nil
+                            }
+                            viewModel.delete(selected)
                         }
                     }
                 }
