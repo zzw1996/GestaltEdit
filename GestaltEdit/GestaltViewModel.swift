@@ -195,9 +195,13 @@ final class GestaltViewModel: ObservableObject {
 
         // These two write the same key with opposite values, so keep them exclusive.
         if id == .enableLiquidGlassLowPerformance, enabled {
-            tweakOverrides[.disableLiquidGlassLowPerformance] = isApplied(.disableLiquidGlassLowPerformance) ? false : nil
+            if isApplied(.disableLiquidGlassLowPerformance) {
+                tweakOverrides[.disableLiquidGlassLowPerformance] = false
+            }
         } else if id == .disableLiquidGlassLowPerformance, enabled {
-            tweakOverrides[.enableLiquidGlassLowPerformance] = isApplied(.enableLiquidGlassLowPerformance) ? false : nil
+            if isApplied(.enableLiquidGlassLowPerformance) {
+                tweakOverrides[.enableLiquidGlassLowPerformance] = false
+            }
         }
     }
 
