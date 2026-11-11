@@ -612,8 +612,16 @@ private struct AdvancedGestaltEditor: View {
     @State private var searchText = ""
     @State private var activeEditor: FieldEditorRoute?
 
-    private var cacheExtraKeys: [String] {
-        filtered(viewModel.plist?.cacheExtraKeys ?? [], section: .cacheExtra)
+    private var groupedCacheExtra: [(category: GestaltKeyCategory, keys: [String])] {
+        let keys = filtered(viewModel.plist?.cacheExtraKeys ?? [], section: .cacheExtra)
+        var buckets: [GestaltKeyCategory: [String]] = [:]
+        for key in keys {
+            buckets[GestaltKeyCatalog.category(for: key), default: []].append(key)
+        }
+        return GestaltKeyCategory.allCases.compactMap { category in
+            guard let list = buckets[category], !list.isEmpty else { return nil }
+            return (category, list.sorted { GestaltKeyCatalog.sortKey($0) < GestaltKeyCatalog.sortKey($1) })
+        }
     }
 
     private var topLevelKeys: [String] {
@@ -626,27 +634,42 @@ private struct AdvancedGestaltEditor: View {
     var body: some View {
         List {
             if viewModel.plist != nil {
-                KeySection(
-                    title: "CacheExtra",
-                    keys: cacheExtraKeys,
-                    value: { value(for: PlistKey(section: .cacheExtra, key: $0)) },
-                    select: {
-                        activeEditor = .edit(
-                            PlistKey(section: .cacheExtra, key: $0)
-                        )
-                    }
-                )
+                Section {
+                    Text("CacheExtra keys are Apple's encrypted short codes. Fields below are grouped by what they do; keys that are not in the catalog are marked as unknown, so check a backup before changing them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-                KeySection(
-                    title: String(localized: "Top Level"),
-                    keys: topLevelKeys,
-                    value: { value(for: PlistKey(section: .topLevel, key: $0)) },
-                    select: {
-                        activeEditor = .edit(
-                            PlistKey(section: .topLevel, key: $0)
-                        )
+                ForEach(groupedCacheExtra, id: \.category) { group in
+                    Section(group.category.title) {
+                        ForEach(group.keys, id: \.self) { key in
+                            let reference = PlistKey(section: .cacheExtra, key: key)
+                            Button {
+                                activeEditor = .edit(reference)
+                            } label: {
+                                KeyRow(key: key, value: value(for: reference))
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                )
+                }
+
+                Section(String(localized: "Top Level")) {
+                    if topLevelKeys.isEmpty {
+                        Text("No Results")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(topLevelKeys, id: \.self) { key in
+                            let reference = PlistKey(section: .topLevel, key: key)
+                            Button {
+                                activeEditor = .edit(reference)
+                            } label: {
+                                KeyRow(key: key, value: value(for: reference))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             }
         }
         .navigationTitle("Advanced Field Editor")
@@ -672,6 +695,7 @@ private struct AdvancedGestaltEditor: View {
                 case .edit(let key):
                     ValueEditor(
                         key: key.key,
+                        info: GestaltKeyCatalog.info(for: key.key),
                         initialValue: value(for: key),
                         save: { update($0, for: key) },
                         delete: key.section == .cacheExtra
@@ -693,8 +717,11 @@ private struct AdvancedGestaltEditor: View {
         return keys.filter { key in
             let reference = PlistKey(section: section, key: key)
             let info = PlistValueInfo.info(for: value(for: reference))
+            let knowledge = GestaltKeyCatalog.info(for: key)
             return key.localizedCaseInsensitiveContains(query)
                 || info.searchText.localizedCaseInsensitiveContains(query)
+                || (knowledge?.title.localizedCaseInsensitiveContains(query) ?? false)
+                || (knowledge?.summary.localizedCaseInsensitiveContains(query) ?? false)
         }
     }
 
@@ -779,46 +806,41 @@ private enum AddFieldError: LocalizedError {
     }
 }
 
-private struct KeySection: View {
-    let title: String
-    let keys: [String]
-    let value: (String) -> Any?
-    let select: (String) -> Void
-
-    var body: some View {
-        Section(title) {
-            if keys.isEmpty {
-                Text("No Results")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(keys, id: \.self) { key in
-                    Button { select(key) } label: {
-                        KeyRow(key: key, value: value(key))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-}
-
 private struct KeyRow: View {
     let key: String
     let value: Any?
 
     var body: some View {
         let info = PlistValueInfo.info(for: value)
+        let knowledge = GestaltKeyCatalog.info(for: key)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(knowledge?.title ?? String(localized: "Unknown field"))
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if knowledge?.risk == .risky {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                if let knowledge {
+                    Text(knowledge.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
                 Text(key)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.primary)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(info.summary)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
             Spacer()
             Image(systemName: "chevron.right")
@@ -833,6 +855,7 @@ private struct ValueEditor: View {
     @Environment(\.dismiss) private var dismiss
 
     let key: String
+    let info: GestaltKeyInfo?
     let initialValue: Any?
     let save: (Any) -> Void
     let delete: (() -> Void)?
@@ -844,11 +867,13 @@ private struct ValueEditor: View {
 
     init(
         key: String,
+        info: GestaltKeyInfo? = nil,
         initialValue: Any?,
         save: @escaping (Any) -> Void,
         delete: (() -> Void)? = nil
     ) {
         self.key = key
+        self.info = info
         self.initialValue = initialValue
         self.save = save
         self.delete = delete
@@ -860,6 +885,44 @@ private struct ValueEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    if let info {
+                        Text(info.title)
+                            .font(.headline)
+                        Text(info.summary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Image(systemName: info.risk == .safe
+                                ? "checkmark.seal"
+                                : "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(info.risk == .safe ? .green : .orange)
+                            Text(info.risk.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("Unknown field")
+                            .font(.headline)
+                        Text("This key is not in the built-in catalog. Its name is an encrypted MobileGestalt code, so its effect is unknown; export a backup before changing it.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Raw key") {
+                        Text(key)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
+                    Button {
+                        UIPasteboard.general.string = key
+                    } label: {
+                        Label("Copy Key", systemImage: "doc.on.doc")
+                    }
+                } header: {
+                    Text("About This Field")
+                }
+
                 Section("Type") {
                     Picker("Type", selection: $kind) {
                         ForEach(PlistValueKind.allCases) { kind in
