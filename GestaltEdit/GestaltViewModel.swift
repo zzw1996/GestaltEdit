@@ -46,7 +46,7 @@ final class GestaltViewModel: ObservableObject {
     @Published var notice: GestaltNotice?
     @Published private(set) var hasAttemptedLoad = false
     @Published private(set) var backups: [GestaltBackup] = []
-    @Published var tweakOverrides: [GestaltTweakID: Bool] = []
+    @Published var tweakOverrides: [GestaltTweakID: Bool] = [:]
     @Published var dynamicIslandSubtype: Int?
     @Published var changesModelName = false
     @Published var modelName = ""
