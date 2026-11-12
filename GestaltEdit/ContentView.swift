@@ -68,6 +68,7 @@ private struct TweakWorkbench: View {
     @State private var presetName = ""
     @State private var showsExperimental = false
     @State private var showsSpoofPicker = false
+    @State private var showsHiddenExperimental = false
 
     var body: some View {
         NavigationStack {
@@ -120,7 +121,7 @@ private struct TweakWorkbench: View {
 
                     presetsSection
 
-                    ForEach(GestaltTweakCategory.allCases.filter { $0 != .region && $0 != .experimental }) { category in
+                    ForEach(visibleCategories) { category in
                         tweakSection(category)
                     }
 
@@ -271,8 +272,24 @@ private struct TweakWorkbench: View {
         }
     }
 
+    /// Catalog with the user's verification records applied: keys proven to work
+    /// move into a normal section, keys proven ineffective disappear.
+    private var resolvedDefinitions: [GestaltTweakDefinition] {
+        GestaltTweakCatalog.resolved(
+            using: viewModel.experimentalVerifications,
+            includeHidden: showsHiddenExperimental
+        )
+    }
+
+    private var visibleCategories: [GestaltTweakCategory] {
+        GestaltTweakCategory.allCases.filter { category in
+            guard category != .region, category != .experimental else { return false }
+            return resolvedDefinitions.contains { $0.category == category }
+        }
+    }
+
     private func tweakSection(_ category: GestaltTweakCategory) -> some View {
-        let definitions = GestaltTweakCatalog.definitions.filter { $0.category == category }
+        let definitions = resolvedDefinitions.filter { $0.category == category }
         return Section(category.label) {
             ForEach(definitions) { definition in
                 tweakRow(definition)
@@ -321,7 +338,7 @@ private struct TweakWorkbench: View {
     }
 
     private var experimentalSection: some View {
-        let definitions = GestaltTweakCatalog.definitions.filter { $0.category == .experimental }
+        let definitions = resolvedDefinitions.filter { $0.category == .experimental }
         return Section {
             DisclosureGroup(isExpanded: $showsExperimental) {
                 ForEach(definitions) { definition in
@@ -331,6 +348,9 @@ private struct TweakWorkbench: View {
                     }
                 }
 
+                Toggle("Show keys verified as no effect", isOn: $showsHiddenExperimental)
+                    .font(.callout)
+
                 ShareLink(
                     item: viewModel.experimentalReport,
                     preview: SharePreview("GestaltEdit experimental results")
@@ -338,11 +358,11 @@ private struct TweakWorkbench: View {
                     Label("Share Verification Report", systemImage: "square.and.arrow.up")
                 }
             } label: {
-                Label("Experimental (unverified)", systemImage: "flask")
+                Label("Experimental", systemImage: "flask")
                     .foregroundStyle(.orange)
             }
         } footer: {
-            Text("Keys reported by other MobileGestalt tools but not verified on this device. Tap the icon on the right of each row to record what happened here; the report collects every result so it can be copied back into the repo checklist.")
+            Text("Keys reported by other MobileGestalt tools. Tap the icon on the right of each row to record what happened: keys you mark as working move to their own section with a green badge, keys marked as no effect are hidden from this list.")
         }
     }
 
@@ -744,6 +764,7 @@ private struct TweakToggle: View {
                             .foregroundStyle(.orange)
                             .accessibilityLabel("High Risk")
                     }
+                    verificationBadge
                     if isPending {
                         Text("Pending")
                             .font(.caption2.weight(.semibold))
@@ -764,6 +785,36 @@ private struct TweakToggle: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Only shown once the user has recorded something about this key.
+    @ViewBuilder
+    private var verificationBadge: some View {
+        switch definition.verification {
+        case .works:
+            Text("Verified")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.green)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.green.opacity(0.12), in: Capsule())
+        case .sideEffect:
+            Text("Side Effects")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.orange.opacity(0.12), in: Capsule())
+        case .noEffect:
+            Text("No Effect")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.quaternary.opacity(0.3), in: Capsule())
+        case .unverified:
+            EmptyView()
         }
     }
 }

@@ -402,6 +402,13 @@
 "Verification result: %@" = "验证结果：%@";
 "Export Change Log" = "导出变更日志";
 "Keys reported by other MobileGestalt tools but not verified on this device. Tap the icon on the right of each row to record what happened here; the report collects every result so it can be copied back into the repo checklist." = "这些键来自其他 MobileGestalt 工具的报告，尚未在本机验证。点每行右侧的图标记录实测结果；报告会汇总所有结论，可复制回仓库清单。";
+"Show keys verified as no effect" = "显示已验证无效的键";
+"Verified" = "已验证生效";
+"Side Effects" = "有副作用";
+"No Effect" = "已证实无效";
+"Media & Audio" = "媒体与音频";
+"System Features" = "系统功能";
+"Keys reported by other MobileGestalt tools. Tap the icon on the right of each row to record what happened: keys you mark as working move to their own section with a green badge, keys marked as no effect are hidden from this list." = "这些键来自其他 MobileGestalt 工具的报告。点每行右侧图标记录实测结果：标记为「生效」的会自动进入对应正式分组并带绿色徽标，标记为「无效」的会从本列表隐藏。";
 "Fields" = "字段";
 "Spoof Device Model" = "伪装机型";
 "Spoof device identity as %@" = "伪装设备身份为 %@";

@@ -1,5 +1,48 @@
 import Foundation
 
+/// What the user saw when testing an experimental key on their own device.
+enum ExperimentalResult: String, Codable, CaseIterable, Identifiable {
+    case unverified
+    case works
+    case noEffect
+    case sideEffect
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .unverified: String(localized: "Unverified")
+        case .works: String(localized: "Works")
+        case .noEffect: String(localized: "No effect")
+        case .sideEffect: String(localized: "Has side effects")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .unverified: "questionmark.circle"
+        case .works: "checkmark.circle.fill"
+        case .noEffect: "minus.circle"
+        case .sideEffect: "exclamationmark.triangle.fill"
+        }
+    }
+
+    /// Sort order for the exported report: verified results first.
+    var rank: Int {
+        switch self {
+        case .works: 0
+        case .sideEffect: 1
+        case .noEffect: 2
+        case .unverified: 3
+        }
+    }
+}
+
+struct ExperimentalVerification: Codable {
+    var result: ExperimentalResult
+    var updatedAt: Date
+}
+
 enum GestaltTweakCategory: String, CaseIterable, Identifiable {
     case region
     case display
@@ -7,6 +50,8 @@ enum GestaltTweakCategory: String, CaseIterable, Identifiable {
     case ipad
     case internalFeatures
     case experimental
+    case media
+    case systemFeatures
 
     var id: String { rawValue }
 
@@ -18,6 +63,8 @@ enum GestaltTweakCategory: String, CaseIterable, Identifiable {
         case .region: String(localized: "Region")
         case .internalFeatures: String(localized: "Internal & Research")
         case .experimental: String(localized: "Experimental")
+        case .media: String(localized: "Media & Audio")
+        case .systemFeatures: String(localized: "System Features")
         }
     }
 }
@@ -100,11 +147,15 @@ enum GestaltTweakID: String, CaseIterable, Identifiable {
 
 struct GestaltTweakDefinition: Identifiable {
     let id: GestaltTweakID
-    let category: GestaltTweakCategory
+    var category: GestaltTweakCategory
     let title: String
     let detail: String
     let values: [String: Any]
     var isRisky = false
+    /// Where this key belongs once the user has verified it on their device.
+    var promotedCategory: GestaltTweakCategory?
+    /// Current verification result; filled in by `GestaltTweakCatalog.resolved`.
+    var verification: ExperimentalResult = .unverified
 }
 
 enum GestaltTweakCatalog {
@@ -133,17 +184,41 @@ enum GestaltTweakCatalog {
 
         // Experimental keys: reported by GestaltX, not verified here. Every entry is
         // treated as risky and the section is collapsed by default.
-        .init(id: .aodHighBrightness, category: .experimental, title: String(localized: "AOD High Brightness"), detail: String(localized: "Unverified. May raise Always-On Display brightness and burn-in risk."), values: ["7brdL5xrEUWnlF9C0kdg5A": 1], isRisky: true),
-        .init(id: .hdrPhotoDisplay, category: .experimental, title: String(localized: "HDR Photo Display"), detail: String(localized: "Unverified. Claims HDR photo rendering support."), values: ["a1r7npIrhXsZ7SmKRKC1eA": 1], isRisky: true),
-        .init(id: .audioMix, category: .experimental, title: String(localized: "Audio Mix"), detail: String(localized: "Unverified. Enables the Audio Mix capability."), values: ["aVL5GE3tx0LSCI/ErfrJGA": 1], isRisky: true),
-        .init(id: .spatialFaceTimeAudio, category: .experimental, title: String(localized: "Spatial FaceTime Audio"), detail: String(localized: "Unverified. Enables spatial audio in FaceTime."), values: ["/EVOCjM/Nmb2roP5ebtEFA": 1], isRisky: true),
-        .init(id: .onDeviceSiri, category: .experimental, title: String(localized: "On-Device Siri"), detail: String(localized: "Unverified. Claims on-device Siri support."), values: ["K/R1GfGfCkXvEhaPS2Vrng": 1], isRisky: true),
-        .init(id: .audioIntelligence, category: .experimental, title: String(localized: "Audio Intelligence"), detail: String(localized: "Unverified. Enables audio intelligence features."), values: ["rb2tKZxlj0Gm2tBmUQSLqQ": 1], isRisky: true),
-        .init(id: .translation, category: .experimental, title: String(localized: "Translation"), detail: String(localized: "Unverified. Enables the system translation capability."), values: ["M1n2sAqf33NAOgZRGxQYBA": 1], isRisky: true),
-        .init(id: .photosCleanup, category: .experimental, title: String(localized: "Photos Cleanup"), detail: String(localized: "Unverified. Enables the Photos cleanup feature."), values: ["XNCjqOupLM/S8fNyxRNQTA": 1], isRisky: true),
-        .init(id: .handwritingSynthesis, category: .experimental, title: String(localized: "Handwriting Synthesis"), detail: String(localized: "Unverified. Enables handwriting synthesis."), values: ["YgYIIViDt1kgzyIsIV61vA": 1], isRisky: true),
-        .init(id: .heySiriAlwaysListening, category: .experimental, title: String(localized: "Hey Siri Always Listening"), detail: String(localized: "Unverified. Keeps the Hey Siri listener available."), values: ["TusANsf9Lfe3P/9fIXXSrQ": 1], isRisky: true)
+        .init(id: .aodHighBrightness, category: .experimental, title: String(localized: "AOD High Brightness"), detail: String(localized: "Unverified. May raise Always-On Display brightness and burn-in risk."), values: ["7brdL5xrEUWnlF9C0kdg5A": 1], isRisky: true, promotedCategory: .display),
+        .init(id: .hdrPhotoDisplay, category: .experimental, title: String(localized: "HDR Photo Display"), detail: String(localized: "Unverified. Claims HDR photo rendering support."), values: ["a1r7npIrhXsZ7SmKRKC1eA": 1], isRisky: true, promotedCategory: .display),
+        .init(id: .audioMix, category: .experimental, title: String(localized: "Audio Mix"), detail: String(localized: "Unverified. Enables the Audio Mix capability."), values: ["aVL5GE3tx0LSCI/ErfrJGA": 1], isRisky: true, promotedCategory: .media),
+        .init(id: .spatialFaceTimeAudio, category: .experimental, title: String(localized: "Spatial FaceTime Audio"), detail: String(localized: "Unverified. Enables spatial audio in FaceTime."), values: ["/EVOCjM/Nmb2roP5ebtEFA": 1], isRisky: true, promotedCategory: .media),
+        .init(id: .onDeviceSiri, category: .experimental, title: String(localized: "On-Device Siri"), detail: String(localized: "Unverified. Claims on-device Siri support."), values: ["K/R1GfGfCkXvEhaPS2Vrng": 1], isRisky: true, promotedCategory: .systemFeatures),
+        .init(id: .audioIntelligence, category: .experimental, title: String(localized: "Audio Intelligence"), detail: String(localized: "Unverified. Enables audio intelligence features."), values: ["rb2tKZxlj0Gm2tBmUQSLqQ": 1], isRisky: true, promotedCategory: .media),
+        .init(id: .translation, category: .experimental, title: String(localized: "Translation"), detail: String(localized: "Unverified. Enables the system translation capability."), values: ["M1n2sAqf33NAOgZRGxQYBA": 1], isRisky: true, promotedCategory: .systemFeatures),
+        .init(id: .photosCleanup, category: .experimental, title: String(localized: "Photos Cleanup"), detail: String(localized: "Unverified. Enables the Photos cleanup feature."), values: ["XNCjqOupLM/S8fNyxRNQTA": 1], isRisky: true, promotedCategory: .systemFeatures),
+        .init(id: .handwritingSynthesis, category: .experimental, title: String(localized: "Handwriting Synthesis"), detail: String(localized: "Unverified. Enables handwriting synthesis."), values: ["YgYIIViDt1kgzyIsIV61vA": 1], isRisky: true, promotedCategory: .systemFeatures),
+        .init(id: .heySiriAlwaysListening, category: .experimental, title: String(localized: "Hey Siri Always Listening"), detail: String(localized: "Unverified. Keeps the Hey Siri listener available."), values: ["TusANsf9Lfe3P/9fIXXSrQ": 1], isRisky: true, promotedCategory: .systemFeatures)
     ]
+
+    /// Applies the user's own verification records. Keys confirmed working move
+    /// into their promoted category; keys confirmed ineffective are dropped from
+    /// the list unless the caller asks to see them.
+    static func resolved(
+        using results: [String: ExperimentalVerification],
+        includeHidden: Bool = false
+    ) -> [GestaltTweakDefinition] {
+        definitions.compactMap { definition in
+            guard definition.category == .experimental else { return definition }
+            let result = results[definition.id.rawValue]?.result ?? .unverified
+            var copy = definition
+            copy.verification = result
+            switch result {
+            case .works:
+                copy.category = definition.promotedCategory ?? .experimental
+            case .noEffect:
+                guard includeHidden else { return nil }
+            case .unverified, .sideEffect:
+                break
+            }
+            return copy
+        }
+    }
 
     static func definition(for id: GestaltTweakID) -> GestaltTweakDefinition? {
         definitions.first { $0.id == id }
