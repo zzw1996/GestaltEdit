@@ -389,6 +389,7 @@
 "Import Presets from Clipboard" = "从剪贴板导入预设";
 "That text is not a valid preset JSON file." = "这段文本不是有效的预设 JSON。";
 "Nothing new to import; preset names already exist." = "没有可导入的新预设，同名预设已存在。";
+"Fields" = "字段";
 "Spoof Device Model" = "伪装机型";
 "Spoof device identity as %@" = "伪装设备身份为 %@";
 "Family" = "机型系列";

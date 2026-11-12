@@ -912,9 +912,11 @@ private struct BackupRow: View {
 
 private struct AdvancedGestaltEditor: View {
     @EnvironmentObject private var viewModel: GestaltViewModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var searchText = ""
     @State private var activeEditor: FieldEditorRoute?
+    @State private var selectedSection: EditorSection?
 
     private var groupedCacheExtra: [(category: GestaltKeyCategory, keys: [String])] {
         let keys = filtered(viewModel.plist?.cacheExtraKeys ?? [], section: .cacheExtra)
@@ -936,6 +938,86 @@ private struct AdvancedGestaltEditor: View {
     }
 
     var body: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                splitLayout
+            } else {
+                stackedLayout
+            }
+        }
+    }
+
+    /// iPad / regular width: categories in the sidebar, fields of the selected
+    /// category on the right, so long lists stop pushing the header off-screen.
+    private var splitLayout: some View {
+        NavigationSplitView {
+            List(selection: $selectedSection) {
+                Section(String(localized: "CacheExtra")) {
+                    ForEach(groupedCacheExtra, id: \.category) { group in
+                        Label(group.category.title, systemImage: "square.stack.3d.up")
+                            .tag(Optional(EditorSection.category(group.category)))
+                    }
+                }
+                Section {
+                    Label(String(localized: "Top Level"), systemImage: "list.bullet.rectangle")
+                        .tag(Optional(EditorSection.topLevel))
+                }
+            }
+            .navigationTitle("Fields")
+            .searchable(text: $searchText, prompt: "Search key or value")
+            .onAppear {
+                if selectedSection == nil {
+                    selectedSection = groupedCacheExtra.first.map { .category($0.category) }
+                }
+            }
+        } detail: {
+            List {
+                if viewModel.plist == nil {
+                    Text("Reading MobileGestalt…")
+                        .foregroundStyle(.secondary)
+                } else {
+                    switch selectedSection {
+                    case .category(let category):
+                        let keys = groupedCacheExtra.first { $0.category == category }?.keys ?? []
+                        if keys.isEmpty {
+                            Text("No Results").foregroundStyle(.secondary)
+                        } else {
+                            ForEach(keys, id: \.self) { key in
+                                let reference = PlistKey(section: .cacheExtra, key: key)
+                                Button {
+                                    activeEditor = .edit(reference)
+                                } label: {
+                                    KeyRow(key: key, value: value(for: reference))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    case .topLevel, .none:
+                        if topLevelKeys.isEmpty {
+                            Text("No Results").foregroundStyle(.secondary)
+                        } else {
+                            ForEach(topLevelKeys, id: \.self) { key in
+                                let reference = PlistKey(section: .topLevel, key: key)
+                                Button {
+                                    activeEditor = .edit(reference)
+                                } label: {
+                                    KeyRow(key: key, value: value(for: reference))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(String(localized: "Advanced Field Editor"))
+            .toolbar { editorToolbar }
+        }
+        .sheet(item: $activeEditor) { editor in
+            editorSheet(editor)
+        }
+    }
+
+    private var stackedLayout: some View {
         List {
             if viewModel.plist != nil {
                 Section {
@@ -978,40 +1060,48 @@ private struct AdvancedGestaltEditor: View {
         }
         .navigationTitle("Advanced Field Editor")
         .searchable(text: $searchText, prompt: "Search key or value")
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button {
-                    activeEditor = .addCacheExtra
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add CacheExtra Field")
-                .disabled(viewModel.plist == nil || viewModel.isBusy)
-
-                Button("Save", action: viewModel.applyChanges)
-                    .fontWeight(.semibold)
-                    .disabled(!viewModel.isDirty || viewModel.isBusy)
-            }
-        }
+        .toolbar { editorToolbar }
         .sheet(item: $activeEditor) { editor in
-            Group {
-                switch editor {
-                case .edit(let key):
-                    ValueEditor(
-                        key: key.key,
-                        info: GestaltKeyCatalog.info(for: key.key),
-                        initialValue: value(for: key),
-                        save: { update($0, for: key) },
-                        delete: key.section == .cacheExtra
-                            ? { deleteCacheExtraField(key.key) }
-                            : nil
-                    )
-                case .addCacheExtra:
-                    AddCacheExtraFieldEditor(save: addCacheExtraField)
-                }
-            }
-            .presentationDetents([.medium, .large])
+            editorSheet(editor)
         }
+    }
+
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigationBarTrailing) {
+            Button {
+                activeEditor = .addCacheExtra
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel("Add CacheExtra Field")
+            .disabled(viewModel.plist == nil || viewModel.isBusy)
+
+            Button("Save", action: viewModel.applyChanges)
+                .fontWeight(.semibold)
+                .disabled(!viewModel.isDirty || viewModel.isBusy)
+        }
+    }
+
+    @ViewBuilder
+    private func editorSheet(_ editor: FieldEditorRoute) -> some View {
+        Group {
+            switch editor {
+            case .edit(let key):
+                ValueEditor(
+                    key: key.key,
+                    info: GestaltKeyCatalog.info(for: key.key),
+                    initialValue: value(for: key),
+                    save: { update($0, for: key) },
+                    delete: key.section == .cacheExtra
+                        ? { deleteCacheExtraField(key.key) }
+                        : nil
+                )
+            case .addCacheExtra:
+                AddCacheExtraFieldEditor(save: addCacheExtraField)
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     private func filtered(_ keys: [String], section: PlistSection) -> [String] {
@@ -1081,6 +1171,12 @@ private struct AdvancedGestaltEditor: View {
 
 private enum PlistSection: String {
     case cacheExtra
+    case topLevel
+}
+
+/// Sidebar entries of the split field editor.
+private enum EditorSection: Hashable {
+    case category(GestaltKeyCategory)
     case topLevel
 }
 
