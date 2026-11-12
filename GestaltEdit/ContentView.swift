@@ -66,6 +66,7 @@ private struct TweakWorkbench: View {
     @EnvironmentObject private var viewModel: GestaltViewModel
     @State private var showsPresetPrompt = false
     @State private var presetName = ""
+    @State private var showsExperimental = false
 
     var body: some View {
         NavigationStack {
@@ -93,6 +94,7 @@ private struct TweakWorkbench: View {
 
                 if viewModel.plist != nil {
                     regionStatusSection
+                    deviceIdentitySection
                     tweakSection(.region)
                     dynamicIslandSection
                     modelNameSection
@@ -117,9 +119,11 @@ private struct TweakWorkbench: View {
 
                     presetsSection
 
-                    ForEach(GestaltTweakCategory.allCases.filter { $0 != .region }) { category in
+                    ForEach(GestaltTweakCategory.allCases.filter { $0 != .region && $0 != .experimental }) { category in
                         tweakSection(category)
                     }
+
+                    experimentalSection
 
                 }
 
@@ -211,6 +215,21 @@ private struct TweakWorkbench: View {
                 Label("Save Current as Preset", systemImage: "plus.square.on.square")
             }
 
+            if !viewModel.customPresets.isEmpty {
+                ShareLink(
+                    item: viewModel.presetExportJSON,
+                    preview: SharePreview("GestaltEdit presets")
+                ) {
+                    Label("Export Presets (JSON)", systemImage: "square.and.arrow.up")
+                }
+            }
+
+            Button {
+                viewModel.importPresets(fromJSON: UIPasteboard.general.string ?? "")
+            } label: {
+                Label("Import Presets from Clipboard", systemImage: "doc.on.clipboard")
+            }
+
             if viewModel.customPresets.isEmpty {
                 Text("No saved presets")
                     .foregroundStyle(.secondary)
@@ -255,17 +274,7 @@ private struct TweakWorkbench: View {
         let definitions = GestaltTweakCatalog.definitions.filter { $0.category == category }
         return Section(category.label) {
             ForEach(definitions) { definition in
-                TweakToggle(
-                    definition: definition,
-                    isOn: Binding(
-                        get: { viewModel.desiredState(for: definition.id) },
-                        set: { viewModel.setTweakDesired(definition.id, enabled: $0) }
-                    ),
-                    isApplied: viewModel.isApplied(definition.id),
-                    isPending: viewModel.tweakOverrides[definition.id].map {
-                        $0 != viewModel.isApplied(definition.id)
-                    } ?? false
-                )
+                tweakRow(definition)
             }
             if category == .region {
                 Toggle(
@@ -293,6 +302,81 @@ private struct TweakWorkbench: View {
                     }
                 }
             }
+        }
+    }
+
+    private func tweakRow(_ definition: GestaltTweakDefinition) -> some View {
+        TweakToggle(
+            definition: definition,
+            isOn: Binding(
+                get: { viewModel.desiredState(for: definition.id) },
+                set: { viewModel.setTweakDesired(definition.id, enabled: $0) }
+            ),
+            isApplied: viewModel.isApplied(definition.id),
+            isPending: viewModel.tweakOverrides[definition.id].map {
+                $0 != viewModel.isApplied(definition.id)
+            } ?? false
+        )
+    }
+
+    private var experimentalSection: some View {
+        let definitions = GestaltTweakCatalog.definitions.filter { $0.category == .experimental }
+        return Section {
+            DisclosureGroup(isExpanded: $showsExperimental) {
+                ForEach(definitions) { definition in
+                    tweakRow(definition)
+                }
+            } label: {
+                Label("Experimental (unverified)", systemImage: "flask")
+                    .foregroundStyle(.orange)
+            }
+        } footer: {
+            Text("Keys reported by other MobileGestalt tools but not verified on this device. A wrong value can break system features, so every switch here is treated as high risk and requires confirmation.")
+        }
+    }
+
+    @ViewBuilder
+    private var deviceIdentitySection: some View {
+        let identity = viewModel.deviceIdentity
+        Section {
+            identityRow("Real product type", identity.realProductType)
+            identityRow("MG product type", identity.mgProductType)
+            identityRow("Hardware model", identity.hardwareModel)
+            identityRow("CPU model", identity.cpuModel)
+
+            if viewModel.isIdentitySpoofed {
+                Label("Identity is spoofed", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+
+                Button {
+                    viewModel.restoreIdentity()
+                } label: {
+                    Label("Restore Official Identity", systemImage: "arrow.uturn.backward.circle")
+                }
+                .disabled(!viewModel.canRestoreIdentity || viewModel.isBusy)
+            }
+        } header: {
+            Text("Device Identity")
+        } footer: {
+            if let date = identity.snapshotDate {
+                Text(String(
+                    format: String(localized: "Real identity snapshot recorded %@."),
+                    date.formatted(date: .abbreviated, time: .shortened)
+                ))
+            } else {
+                Text("No identity snapshot yet; restore is unavailable until the app has read the file once.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func identityRow(_ title: String, _ value: String?) -> some View {
+        LabeledContent {
+            Text(value ?? "—")
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+        } label: {
+            Text(title)
         }
     }
 
@@ -924,13 +1008,19 @@ private struct AdvancedGestaltEditor: View {
         guard !query.isEmpty else { return keys }
 
         return keys.filter { key in
+            // Cheap checks first: key, then the catalog text. Only fall back to
+            // summarizing the value (which may encode a large Data blob) when the
+            // query could plausibly match it.
+            if key.localizedCaseInsensitiveContains(query) { return true }
+            if let knowledge = GestaltKeyCatalog.info(for: key),
+               knowledge.title.localizedCaseInsensitiveContains(query)
+                || knowledge.summary.localizedCaseInsensitiveContains(query) {
+                return true
+            }
             let reference = PlistKey(section: section, key: key)
-            let info = PlistValueInfo.info(for: value(for: reference))
-            let knowledge = GestaltKeyCatalog.info(for: key)
-            return key.localizedCaseInsensitiveContains(query)
-                || info.searchText.localizedCaseInsensitiveContains(query)
-                || (knowledge?.title.localizedCaseInsensitiveContains(query) ?? false)
-                || (knowledge?.summary.localizedCaseInsensitiveContains(query) ?? false)
+            return PlistValueInfo.info(for: value(for: reference))
+                .searchText
+                .localizedCaseInsensitiveContains(query)
         }
     }
 

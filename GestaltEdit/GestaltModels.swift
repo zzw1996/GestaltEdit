@@ -235,23 +235,32 @@ struct PlistValueInfo {
 
     static func info(for value: Any?) -> PlistValueInfo {
         let kind = PlistValueKind.kind(of: value)
-        let text = encode(value, as: kind)
         let summary: String
+        let searchText: String
 
         switch kind {
-        case .string:
-            summary = text.isEmpty ? String(localized: "Empty string") : text
-        case .integer, .float, .boolean:
-            summary = text
         case .data:
+            // Never base64-encode a blob for display/search: CacheData alone can be
+            // kilobytes and the field list would re-encode it on every keystroke.
             summary = String(format: String(localized: "Data (%d bytes)"), (value as? Data)?.count ?? 0)
+            searchText = summary
+        case .string:
+            let text = value as? String ?? ""
+            summary = text.isEmpty ? String(localized: "Empty string") : text
+            searchText = text
+        case .integer, .float, .boolean:
+            let text = encode(value, as: kind)
+            summary = text
+            searchText = text
         case .array:
             summary = String(format: String(localized: "Array (%d items)"), (value as? NSArray)?.count ?? 0)
+            searchText = encode(value, as: kind)
         case .dictionary:
             summary = String(format: String(localized: "Dictionary (%d items)"), (value as? NSDictionary)?.count ?? 0)
+            searchText = encode(value, as: kind)
         }
 
-        return PlistValueInfo(kind: kind, summary: summary, searchText: text)
+        return PlistValueInfo(kind: kind, summary: summary, searchText: searchText)
     }
 
     static func encode(_ value: Any?, as kind: PlistValueKind) -> String {

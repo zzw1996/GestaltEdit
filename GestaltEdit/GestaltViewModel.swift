@@ -38,6 +38,17 @@ struct PendingWrite {
     let completion: (() -> Void)?
 }
 
+/// Values the identity panel shows; `nil` means the key is absent from the file.
+struct DeviceIdentityView {
+    let realProductType: String?
+    let mgProductType: String?
+    let hardwareModel: String?
+    let cpuModel: String?
+    let regulatoryModel: String?
+    let hasSpoofFlags: Bool
+    let snapshotDate: Date?
+}
+
 @MainActor
 final class GestaltViewModel: ObservableObject {
     @Published var plist: GestaltPlist?
@@ -168,6 +179,49 @@ final class GestaltViewModel: ObservableObject {
         CustomPresetStore.save(customPresets)
     }
 
+    /// Pretty-printed JSON so presets survive reinstalling the app.
+    var presetExportJSON: String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(customPresets),
+              let text = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return text
+    }
+
+    /// Imports presets from JSON text pasted by the user. Existing names win, so
+    /// a re-import cannot silently duplicate or overwrite a saved preset.
+    @discardableResult
+    func importPresets(fromJSON text: String) -> Bool {
+        guard let data = text.data(using: .utf8),
+              let presets = try? JSONDecoder().decode([CustomPreset].self, from: data) else {
+            notice = GestaltNotice(
+                kind: .error,
+                message: String(localized: "That text is not a valid preset JSON file.")
+            )
+            return false
+        }
+        var added = 0
+        for preset in presets where !preset.name.isEmpty {
+            guard !customPresets.contains(where: { $0.name == preset.name }) else { continue }
+            customPresets.append(
+                CustomPreset(id: UUID(), name: preset.name, tweakIDs: preset.tweakIDs, createdAt: Date())
+            )
+            added += 1
+        }
+        guard added > 0 else {
+            notice = GestaltNotice(
+                kind: .info,
+                message: String(localized: "Nothing new to import; preset names already exist.")
+            )
+            return false
+        }
+        customPresets = customPresets.sorted { $0.createdAt > $1.createdAt }
+        CustomPresetStore.save(customPresets)
+        return true
+    }
+
     /// Read-only view of the region keys, so the user can verify what is on disk
     /// without opening the field editor.
     var regionSnapshot: (code: String, info: String, regulatory: String, device: String) {
@@ -233,12 +287,65 @@ final class GestaltViewModel: ObservableObject {
             }
             plist = GestaltPlist(dict: dictionary)
             baselineDictionary = dictionary
+            DeviceIdentityStore.captureIfNeeded(from: dictionary["CacheExtra"] as? [String: Any] ?? [:])
             isDirty = false
             refreshBackups()
         } catch {
             plist = nil
             report(error)
         }
+    }
+
+    /// Values the identity panel shows, plus whether the file currently carries
+    /// a spoofed identity written by the force-AI path or anything similar.
+    var deviceIdentity: DeviceIdentityView {
+        let values = plist?.cacheExtra ?? [:]
+        let real = values["0+nc/Udy4WNG8S+Q7a/s1A"] as? String
+        let mg = values["h9jDsbgj7xIVeIQ8S3/X3Q"] as? String
+        let hasFlags = values["A62OafQ85EJAiiqKn4agtg"] != nil
+            || values["a3n5T9sFtlyQ74NEp9ESxg"] != nil
+        return DeviceIdentityView(
+            realProductType: real,
+            mgProductType: mg,
+            hardwareModel: values["oYicEKzVTz4/CxxE05pEgQ"] as? String,
+            cpuModel: values["5pYKlGnYYBzGvAlIU8RjEQ"] as? String,
+            regulatoryModel: values["97JDvERpVwO+GHtthIh7hA"] as? String,
+            hasSpoofFlags: hasFlags,
+            snapshotDate: DeviceIdentityStore.snapshot()?.capturedAt
+        )
+    }
+
+    var isIdentitySpoofed: Bool {
+        let identity = deviceIdentity
+        if identity.hasSpoofFlags { return true }
+        guard let real = identity.realProductType, let mg = identity.mgProductType else {
+            return false
+        }
+        return real != mg
+    }
+
+    var canRestoreIdentity: Bool {
+        DeviceIdentityStore.snapshot() != nil
+    }
+
+    /// Puts only the identity keys back to the recorded real values. Keys that
+    /// were absent originally are removed so the system default applies.
+    func restoreIdentity() {
+        guard !isBusy, var pending = plist, let snapshot = DeviceIdentityStore.snapshot() else {
+            return
+        }
+        for key in DeviceIdentityStore.keys {
+            if let original = snapshot.values[key] {
+                pending.setCacheExtra(original, forKey: key)
+            } else {
+                pending.removeCacheExtraValue(forKey: key)
+            }
+        }
+        requestWrite(
+            pending,
+            source: .tweaks,
+            riskyItems: [String(localized: "Restore official device identity")]
+        )
     }
 
     /// Stages the toggle position; `nil` would mean "same as the file", so a flip

@@ -6,6 +6,7 @@ enum GestaltTweakCategory: String, CaseIterable, Identifiable {
     case hardware
     case ipad
     case internalFeatures
+    case experimental
 
     var id: String { rawValue }
 
@@ -16,6 +17,7 @@ enum GestaltTweakCategory: String, CaseIterable, Identifiable {
         case .ipad: String(localized: "iPad Capabilities")
         case .region: String(localized: "Region")
         case .internalFeatures: String(localized: "Internal & Research")
+        case .experimental: String(localized: "Experimental")
         }
     }
 }
@@ -80,6 +82,18 @@ enum GestaltTweakID: String, CaseIterable, Identifiable {
     case collisionSOS
     case alwaysOnDisplay
     case alwaysOnDisplayVibrancy
+    // Experimental group: keys reported by other MobileGestalt tools but not
+    // verified on this project's test devices yet.
+    case aodHighBrightness
+    case hdrPhotoDisplay
+    case audioMix
+    case spatialFaceTimeAudio
+    case onDeviceSiri
+    case audioIntelligence
+    case translation
+    case photosCleanup
+    case handwritingSynthesis
+    case heySiriAlwaysListening
 
     var id: String { rawValue }
 }
@@ -115,7 +129,20 @@ enum GestaltTweakCatalog {
 
         .init(id: .internalInstall, category: .internalFeatures, title: String(localized: "Apple Internal Install"), detail: String(localized: "Enables internal capabilities such as Metal HUD; some services may misbehave."), values: ["EqrsVvjcYDdxHBiQmGhAWw": 1], isRisky: true),
         .init(id: .internalStorage, category: .internalFeatures, title: String(localized: "Internal Storage View"), detail: String(localized: "Shows internal files in Storage settings; high risk on some iPads."), values: ["LBJfwOEzExRxzlAnSuI7eg": 1], isRisky: true),
-        .init(id: .securityResearchDevice, category: .internalFeatures, title: String(localized: "Security Research Device Mode"), detail: String(localized: "Marks the device as a Security Research Device."), values: ["XYlJKKkj2hztRP1NWWnhlw": 1], isRisky: true)
+        .init(id: .securityResearchDevice, category: .internalFeatures, title: String(localized: "Security Research Device Mode"), detail: String(localized: "Marks the device as a Security Research Device."), values: ["XYlJKKkj2hztRP1NWWnhlw": 1], isRisky: true),
+
+        // Experimental keys: reported by GestaltX, not verified here. Every entry is
+        // treated as risky and the section is collapsed by default.
+        .init(id: .aodHighBrightness, category: .experimental, title: String(localized: "AOD High Brightness"), detail: String(localized: "Unverified. May raise Always-On Display brightness and burn-in risk."), values: ["7brdL5xrEUWnlF9C0kdg5A": 1], isRisky: true),
+        .init(id: .hdrPhotoDisplay, category: .experimental, title: String(localized: "HDR Photo Display"), detail: String(localized: "Unverified. Claims HDR photo rendering support."), values: ["a1r7npIrhXsZ7SmKRKC1eA": 1], isRisky: true),
+        .init(id: .audioMix, category: .experimental, title: String(localized: "Audio Mix"), detail: String(localized: "Unverified. Enables the Audio Mix capability."), values: ["aVL5GE3tx0LSCI/ErfrJGA": 1], isRisky: true),
+        .init(id: .spatialFaceTimeAudio, category: .experimental, title: String(localized: "Spatial FaceTime Audio"), detail: String(localized: "Unverified. Enables spatial audio in FaceTime."), values: ["/EVOCjM/Nmb2roP5ebtEFA": 1], isRisky: true),
+        .init(id: .onDeviceSiri, category: .experimental, title: String(localized: "On-Device Siri"), detail: String(localized: "Unverified. Claims on-device Siri support."), values: ["K/R1GfGfCkXvEhaPS2Vrng": 1], isRisky: true),
+        .init(id: .audioIntelligence, category: .experimental, title: String(localized: "Audio Intelligence"), detail: String(localized: "Unverified. Enables audio intelligence features."), values: ["rb2tKZxlj0Gm2tBmUQSLqQ": 1], isRisky: true),
+        .init(id: .translation, category: .experimental, title: String(localized: "Translation"), detail: String(localized: "Unverified. Enables the system translation capability."), values: ["M1n2sAqf33NAOgZRGxQYBA": 1], isRisky: true),
+        .init(id: .photosCleanup, category: .experimental, title: String(localized: "Photos Cleanup"), detail: String(localized: "Unverified. Enables the Photos cleanup feature."), values: ["XNCjqOupLM/S8fNyxRNQTA": 1], isRisky: true),
+        .init(id: .handwritingSynthesis, category: .experimental, title: String(localized: "Handwriting Synthesis"), detail: String(localized: "Unverified. Enables handwriting synthesis."), values: ["YgYIIViDt1kgzyIsIV61vA": 1], isRisky: true),
+        .init(id: .heySiriAlwaysListening, category: .experimental, title: String(localized: "Hey Siri Always Listening"), detail: String(localized: "Unverified. Keeps the Hey Siri listener available."), values: ["TusANsf9Lfe3P/9fIXXSrQ": 1], isRisky: true)
     ]
 
     static func definition(for id: GestaltTweakID) -> GestaltTweakDefinition? {
