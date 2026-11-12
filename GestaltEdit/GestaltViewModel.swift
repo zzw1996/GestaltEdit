@@ -348,6 +348,26 @@ final class GestaltViewModel: ObservableObject {
         )
     }
 
+    /// Rewrites the identity strings to the chosen model. Board and CPU codes are
+    /// deliberately left alone: guessing them would make the device inconsistent.
+    func spoofIdentity(as target: DeviceSpoofTarget) {
+        guard !isBusy, var pending = plist else { return }
+        pending.setCacheExtra(target.productType, forKey: "h9jDsbgj7xIVeIQ8S3/X3Q")
+        pending.setCacheExtra(target.regulatoryModel, forKey: "97JDvERpVwO+GHtthIh7hA")
+        for key in ["Z/dqyWS6OZTRy10UcmUAhw", "bbtR9jQx50Fv5Af/affNtA"]
+        where pending.cacheExtra[key] != nil {
+            pending.setCacheExtra(target.marketingName, forKey: key)
+        }
+        requestWrite(
+            pending,
+            source: .tweaks,
+            riskyItems: [String(
+                format: String(localized: "Spoof device identity as %@"),
+                target.marketingName
+            )]
+        )
+    }
+
     /// Stages the toggle position; `nil` would mean "same as the file", so a flip
     /// back to the real state simply drops the override.
     func setTweakDesired(_ id: GestaltTweakID, enabled: Bool) {

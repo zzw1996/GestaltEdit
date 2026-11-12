@@ -67,6 +67,7 @@ private struct TweakWorkbench: View {
     @State private var showsPresetPrompt = false
     @State private var presetName = ""
     @State private var showsExperimental = false
+    @State private var showsSpoofPicker = false
 
     var body: some View {
         NavigationStack {
@@ -344,6 +345,13 @@ private struct TweakWorkbench: View {
             identityRow("Hardware model", identity.hardwareModel)
             identityRow("CPU model", identity.cpuModel)
 
+            Button {
+                showsSpoofPicker = true
+            } label: {
+                Label("Spoof Device Model", systemImage: "theatermasks")
+            }
+            .disabled(viewModel.isBusy)
+
             if viewModel.isIdentitySpoofed {
                 Label("Identity is spoofed", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
@@ -367,11 +375,14 @@ private struct TweakWorkbench: View {
                 Text("No identity snapshot yet; restore is unavailable until the app has read the file once.")
             }
         }
+        .sheet(isPresented: $showsSpoofPicker) {
+            DeviceSpoofView()
+                .environmentObject(viewModel)
+        }
     }
 
     @ViewBuilder
-    private func identityRow(_ title: String, _ value: String?) -> some View {
-        LabeledContent {
+    private func identityRow(_ title: LocalizedStringKey, _ value: String?) -> some View {        LabeledContent {
             Text(value ?? "—")
                 .font(.caption.monospaced())
                 .textSelection(.enabled)

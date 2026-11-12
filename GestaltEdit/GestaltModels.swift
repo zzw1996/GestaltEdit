@@ -131,6 +131,37 @@ struct AIRegionProfile: Equatable {
     }
 }
 
+/// One selectable target for identity spoofing.
+struct DeviceSpoofTarget: Identifiable, Hashable {
+    let productType: String
+    let marketingName: String
+    let regulatoryModel: String
+
+    var id: String { productType }
+    var isIPad: Bool { productType.hasPrefix("iPad") }
+}
+
+extension AIRegionProfile {
+    /// Every device in the model table, iPhone first. Only identifiers are known
+    /// here; board and CPU codes stay untouched when spoofing, so the display
+    /// name and model numbers change but the hardware keeps reporting itself.
+    static var spoofTargets: [DeviceSpoofTarget] {
+        productTypes
+            .map { DeviceSpoofTarget(
+                productType: $0.key,
+                marketingName: $0.value.marketingName,
+                regulatoryModel: $0.value.regulatoryModel
+            ) }
+            .sorted { lhs, rhs in
+                if lhs.isIPad != rhs.isIPad { return !lhs.isIPad }
+                if lhs.marketingName != rhs.marketingName {
+                    return lhs.marketingName < rhs.marketingName
+                }
+                return lhs.productType < rhs.productType
+            }
+    }
+}
+
 struct AIRegionConfiguration: Equatable {
     let profile: AIRegionProfile
     let spoofedProductType: String?

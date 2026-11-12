@@ -389,3 +389,13 @@
 "Import Presets from Clipboard" = "从剪贴板导入预设";
 "That text is not a valid preset JSON file." = "这段文本不是有效的预设 JSON。";
 "Nothing new to import; preset names already exist." = "没有可导入的新预设，同名预设已存在。";
+"Spoof Device Model" = "伪装机型";
+"Spoof device identity as %@" = "伪装设备身份为 %@";
+"Family" = "机型系列";
+"Target Model" = "目标机型";
+"Current" = "当前";
+"Search model or identifier" = "搜索机型或型号标识";
+"Spoof this device?" = "确认伪装该机型？";
+"Write identity, then respring" = "写入身份并重载界面";
+"The device will report itself as %@ (%@). Use Restore Official Identity to undo this." = "设备将报告自己是 %@（%@）。可用「还原官方身份」撤销。";
+"Only the model name and model numbers change. The board code, CPU model and device class stay as they are, so the system still behaves like the real hardware. Face ID, OTA updates and warranty checks may still report the original device." = "只改机型名称与型号编号；主板代号、CPU 型号和设备类别保持不变，因此系统行为仍是真实硬件。Face ID、OTA 更新和保修查询仍可能显示原设备。";
