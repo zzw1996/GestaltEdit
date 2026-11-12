@@ -385,6 +385,16 @@
 "Unverified. Enables handwriting synthesis." = "未验证。开启手写合成。";
 "Hey Siri Always Listening" = "常听 Hey Siri";
 "Unverified. Keeps the Hey Siri listener available." = "未验证。保持 Hey Siri 常听可用。";
+"AOD Flipbook Widgets" = "息屏翻页小组件";
+"Unverified. Enables flipbook widgets on the Always-On Lock Screen." = "未验证。在息屏锁屏上启用翻页小组件。";
+"AOD Flipbook Count" = "息屏翻页数量";
+"Unverified. Number of allowed AOD flipbook entries; the accepted range varies by build." = "未验证。允许的息屏翻页条目数，可用范围随系统版本变化。";
+"Internal Settings Bundle" = "内部设置 Bundle";
+"Unverified. Exposes Apple's internal Settings bundle; some services may behave differently." = "未验证。暴露 Apple 内部设置包，部分系统服务行为可能异常。";
+"PWM Display" = "PWM 调光";
+"Unverified. Advertises PWM dimming support; may cause flicker or a black screen on mismatched panels." = "未验证。声明支持 PWM 调光；面板不匹配时可能闪烁或黑屏。";
+"DisplayPort Output" = "DisplayPort 输出";
+"Unverified. Advertises DisplayPort external output; compatible hardware is still required." = "未验证。声明支持 DisplayPort 外接显示，仍需兼容硬件。";
 "Export Presets (JSON)" = "导出预设（JSON）";
 "Import Presets from Clipboard" = "从剪贴板导入预设";
 "That text is not a valid preset JSON file." = "这段文本不是有效的预设 JSON。";

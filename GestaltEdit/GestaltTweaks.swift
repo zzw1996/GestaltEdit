@@ -141,6 +141,11 @@ enum GestaltTweakID: String, CaseIterable, Identifiable {
     case photosCleanup
     case handwritingSynthesis
     case heySiriAlwaysListening
+    case aodFlipbook
+    case aodFlipbookCount
+    case internalSettingsBundle
+    case pwmDisplay
+    case displayPortOutput
 
     var id: String { rawValue }
 }
@@ -193,7 +198,12 @@ enum GestaltTweakCatalog {
         .init(id: .translation, category: .experimental, title: String(localized: "Translation"), detail: String(localized: "Unverified. Enables the system translation capability."), values: ["M1n2sAqf33NAOgZRGxQYBA": 1], isRisky: true, promotedCategory: .systemFeatures),
         .init(id: .photosCleanup, category: .experimental, title: String(localized: "Photos Cleanup"), detail: String(localized: "Unverified. Enables the Photos cleanup feature."), values: ["XNCjqOupLM/S8fNyxRNQTA": 1], isRisky: true, promotedCategory: .systemFeatures),
         .init(id: .handwritingSynthesis, category: .experimental, title: String(localized: "Handwriting Synthesis"), detail: String(localized: "Unverified. Enables handwriting synthesis."), values: ["YgYIIViDt1kgzyIsIV61vA": 1], isRisky: true, promotedCategory: .systemFeatures),
-        .init(id: .heySiriAlwaysListening, category: .experimental, title: String(localized: "Hey Siri Always Listening"), detail: String(localized: "Unverified. Keeps the Hey Siri listener available."), values: ["TusANsf9Lfe3P/9fIXXSrQ": 1], isRisky: true, promotedCategory: .systemFeatures)
+        .init(id: .heySiriAlwaysListening, category: .experimental, title: String(localized: "Hey Siri Always Listening"), detail: String(localized: "Unverified. Keeps the Hey Siri listener available."), values: ["TusANsf9Lfe3P/9fIXXSrQ": 1], isRisky: true, promotedCategory: .systemFeatures),
+        .init(id: .aodFlipbook, category: .experimental, title: String(localized: "AOD Flipbook Widgets"), detail: String(localized: "Unverified. Enables flipbook widgets on the Always-On Lock Screen."), values: ["aoJSd/MXk7M40NgXTM6x+g": 1], isRisky: true, promotedCategory: .display),
+        .init(id: .aodFlipbookCount, category: .experimental, title: String(localized: "AOD Flipbook Count"), detail: String(localized: "Unverified. Number of allowed AOD flipbook entries; the accepted range varies by build."), values: ["qqrspu7CpuPdZwSDxNY+Fg": 3], isRisky: true, promotedCategory: .display),
+        .init(id: .internalSettingsBundle, category: .experimental, title: String(localized: "Internal Settings Bundle"), detail: String(localized: "Unverified. Exposes Apple's internal Settings bundle; some services may behave differently."), values: ["Oji6HRoPi7rH7HPdWVakuw": 1], isRisky: true, promotedCategory: .internalFeatures),
+        .init(id: .pwmDisplay, category: .experimental, title: String(localized: "PWM Display"), detail: String(localized: "Unverified. Advertises PWM dimming support; may cause flicker or a black screen on mismatched panels."), values: ["6IejgN+1Fmu5/QrZFOIeNw": 1], isRisky: true, promotedCategory: .display),
+        .init(id: .displayPortOutput, category: .experimental, title: String(localized: "DisplayPort Output"), detail: String(localized: "Unverified. Advertises DisplayPort external output; compatible hardware is still required."), values: ["CoWnN4xo783YGn4wLrUatA": 1], isRisky: true, promotedCategory: .display)
     ]
 
     /// Applies the user's own verification records. Keys confirmed working move
