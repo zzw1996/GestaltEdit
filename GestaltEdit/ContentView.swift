@@ -64,6 +64,8 @@ struct ContentView: View {
 
 private struct TweakWorkbench: View {
     @EnvironmentObject private var viewModel: GestaltViewModel
+    @State private var showsPresetPrompt = false
+    @State private var presetName = ""
 
     var body: some View {
         NavigationStack {
@@ -90,6 +92,7 @@ private struct TweakWorkbench: View {
                 }
 
                 if viewModel.plist != nil {
+                    regionStatusSection
                     tweakSection(.region)
                     dynamicIslandSection
                     modelNameSection
@@ -111,6 +114,8 @@ private struct TweakWorkbench: View {
                     } footer: {
                         Text("Switches show what the file on disk really holds. Turning one off writes the values recorded when GestaltEdit first enabled it, or removes the keys so the system default applies.")
                     }
+
+                    presetsSection
 
                     ForEach(GestaltTweakCategory.allCases.filter { $0 != .region }) { category in
                         tweakSection(category)
@@ -169,6 +174,80 @@ private struct TweakWorkbench: View {
                     applyBar
                 }
             }
+            .alert("Save Preset", isPresented: $showsPresetPrompt) {
+                TextField("Preset name", text: $presetName)
+                Button("Cancel", role: .cancel) { presetName = "" }
+                Button("Save") {
+                    if viewModel.saveCurrentAsPreset(name: presetName) {
+                        presetName = ""
+                    }
+                }
+            } message: {
+                Text("Saves the tweaks the file currently has applied, so they can be staged again later.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var regionStatusSection: some View {
+        let snapshot = viewModel.regionSnapshot
+        Section {
+            LabeledContent("Device", value: snapshot.device)
+            LabeledContent("Region code", value: snapshot.code)
+            LabeledContent("Region info", value: snapshot.info)
+            LabeledContent("Regulatory model", value: snapshot.regulatory)
+        } header: {
+            Text("Region & Device")
+        } footer: {
+            Text("Read-only values from MobileGestalt, shown so you can check what the file really contains.")
+        }
+    }
+
+    private var presetsSection: some View {
+        Section {
+            Button {
+                showsPresetPrompt = true
+            } label: {
+                Label("Save Current as Preset", systemImage: "plus.square.on.square")
+            }
+
+            if viewModel.customPresets.isEmpty {
+                Text("No saved presets")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(viewModel.customPresets) { preset in
+                    Button {
+                        viewModel.applyPreset(preset)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.name)
+                                    .foregroundStyle(.primary)
+                                Text(String(format: String(localized: "%lld tweaks"), preset.tweakIDs.count))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.down.circle")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+                .onDelete { offsets in
+                    let selected = offsets.compactMap { index in
+                        viewModel.customPresets.indices.contains(index)
+                            ? viewModel.customPresets[index]
+                            : nil
+                    }
+                    for preset in selected {
+                        viewModel.deletePreset(preset)
+                    }
+                }
+            }
+        } header: {
+            Text("Custom Presets")
+        } footer: {
+            Text("Applying a preset only stages the tweaks it contains; review the change preview before writing.")
         }
     }
 
@@ -656,6 +735,11 @@ private struct BackupRow: View {
                     Text(ByteCountFormatter.string(fromByteCount: backup.byteCount, countStyle: .file))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if backup.isManual {
+                        Text("Manual")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.blue)
+                    }
                     if let changes = backup.changes {
                         Button {
                             withAnimation { isExpanded.toggle() }

@@ -55,6 +55,7 @@ final class GestaltViewModel: ObservableObject {
     @Published private(set) var isRespringing = false
     @Published var writePreview: WritePreview?
     @Published private(set) var lastAutoBackupName: String?
+    @Published private(set) var customPresets: [CustomPreset] = []
 
     private let access = GestaltAccess.shared()
     private var pendingWrite: PendingWrite?
@@ -65,6 +66,7 @@ final class GestaltViewModel: ObservableObject {
 
     init() {
         lastAutoBackupName = UserDefaults.standard.string(forKey: Self.lastAutoBackupKey)
+        customPresets = CustomPresetStore.list()
     }
 
     var aiRegionProfile: AIRegionProfile? {
@@ -121,6 +123,61 @@ final class GestaltViewModel: ObservableObject {
             guard let desired = tweakOverrides[definition.id] else { return false }
             return desired != isApplied(definition.id)
         }.count
+    }
+
+    // MARK: - Custom presets
+
+    /// Saves the tweaks the file currently has applied under a user-chosen name.
+    @discardableResult
+    func saveCurrentAsPreset(name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let ids = GestaltTweakCatalog.definitions
+            .filter { isApplied($0.id) }
+            .map { $0.id.rawValue }
+        guard !ids.isEmpty else {
+            notice = GestaltNotice(
+                kind: .info,
+                message: String(localized: "No applied tweaks yet, so there is nothing to save as a preset.")
+            )
+            return false
+        }
+        let preset = CustomPreset(id: UUID(), name: trimmed, tweakIDs: ids, createdAt: Date())
+        customPresets.insert(preset, at: 0)
+        CustomPresetStore.save(customPresets)
+        return true
+    }
+
+    /// Stages everything the preset needs; already-applied tweaks stay untouched.
+    func applyPreset(_ preset: CustomPreset) {
+        tweakOverrides.removeAll()
+        for raw in preset.tweakIDs {
+            guard let id = GestaltTweakID(rawValue: raw), !isApplied(id) else { continue }
+            tweakOverrides[id] = true
+        }
+        if tweakOverrides.isEmpty {
+            notice = GestaltNotice(
+                kind: .info,
+                message: String(localized: "Everything in this preset is already applied.")
+            )
+        }
+    }
+
+    func deletePreset(_ preset: CustomPreset) {
+        customPresets.removeAll { $0.id == preset.id }
+        CustomPresetStore.save(customPresets)
+    }
+
+    /// Read-only view of the region keys, so the user can verify what is on disk
+    /// without opening the field editor.
+    var regionSnapshot: (code: String, info: String, regulatory: String, device: String) {
+        let values = plist?.cacheExtra ?? [:]
+        return (
+            values["h63QSdBCiT/z0WU6rdQv6Q"] as? String ?? "—",
+            values["yK+xavymRGZ3xWc1tb8XDg"] as? String ?? "—",
+            values["97JDvERpVwO+GHtthIh7hA"] as? String ?? "—",
+            aiRegionProfile?.marketingName ?? String(localized: "Unknown")
+        )
     }
 
     /// What the file currently carries, independent of anything staged.
@@ -497,7 +554,7 @@ final class GestaltViewModel: ObservableObject {
         do {
             try access.connect()
             let data = try access.readGestaltData()
-            let backup = try GestaltBackupStore.create(from: data)
+            let backup = try GestaltBackupStore.create(from: data, manual: true)
             refreshBackups()
             notice = GestaltNotice(
                 kind: .backupCreated,
@@ -532,7 +589,7 @@ final class GestaltViewModel: ObservableObject {
                   dictionary["CacheExtra"] is [String: Any] else {
                 throw GestaltEditError.invalidBackup
             }
-            let backup = try GestaltBackupStore.create(from: data)
+            let backup = try GestaltBackupStore.create(from: data, manual: true)
             refreshBackups()
             notice = GestaltNotice(
                 kind: .backupCreated,
