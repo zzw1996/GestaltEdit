@@ -89,6 +89,12 @@ enum GestaltBackupStore {
         try data.write(to: sidecarURL(for: backup.url), options: .atomic)
     }
 
+    /// The change log that travels with a backup, if one was recorded.
+    static func changeLogURL(for backup: GestaltBackup) -> URL? {
+        let url = sidecarURL(for: backup.url)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     private static func backupDirectory() throws -> URL {
         let documents = try FileManager.default.url(
             for: .documentDirectory,

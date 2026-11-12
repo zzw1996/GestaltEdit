@@ -9,6 +9,7 @@ struct DeviceSpoofView: View {
     @State private var searchText = ""
     @State private var showIPads = false
     @State private var pendingTarget: DeviceSpoofTarget?
+    @State private var includeHardware = false
 
     private var targets: [DeviceSpoofTarget] {
         let all = AIRegionProfile.spoofTargets
@@ -38,6 +39,16 @@ struct DeviceSpoofView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+
+                    Toggle(isOn: $includeHardware) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Also sync board and CPU code")
+                            Text("Only models with published values are changed; Face ID and system stability may break when the hardware codes no longer match the real board.")
+                                .font(.caption)
+                                .foregroundStyle(includeHardware ? .orange : .secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
 
                 Section(String(localized: "Target Model")) {
@@ -53,6 +64,15 @@ struct DeviceSpoofView: View {
                                     Text("\(target.productType) · \(target.regulatoryModel)")
                                         .font(.system(.caption2, design: .monospaced))
                                         .foregroundStyle(.secondary)
+                                    if let hardware = DeviceSpoofHardware.hardware(for: target.productType) {
+                                        Text("\(hardware.hardware) · \(hardware.cpu)")
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .foregroundStyle(.tertiary)
+                                    } else {
+                                        Text("No board/CPU data")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
                                 }
                                 Spacer()
                                 if viewModel.deviceIdentity.mgProductType == target.productType {
@@ -82,17 +102,25 @@ struct DeviceSpoofView: View {
                 presenting: pendingTarget
             ) { target in
                 Button(String(localized: "Write identity, then respring")) {
-                    viewModel.spoofIdentity(as: target)
+                    viewModel.spoofIdentity(as: target, includeHardware: includeHardware)
                     pendingTarget = nil
                     dismiss()
                 }
                 Button("Cancel", role: .cancel) { pendingTarget = nil }
             } message: { target in
-                Text(String(
-                    format: String(localized: "The device will report itself as %@ (%@). Use Restore Official Identity to undo this."),
-                    target.marketingName,
-                    target.productType
-                ))
+                if includeHardware, DeviceSpoofHardware.hardware(for: target.productType) == nil {
+                    Text(String(
+                        format: String(localized: "This model has no board/CPU data, so only the identity strings of %@ (%@) will change."),
+                        target.marketingName,
+                        target.productType
+                    ))
+                } else {
+                    Text(String(
+                        format: String(localized: "The device will report itself as %@ (%@). Use Restore Official Identity to undo this."),
+                        target.marketingName,
+                        target.productType
+                    ))
+                }
             }
         }
     }

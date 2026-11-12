@@ -67,6 +67,7 @@ final class GestaltViewModel: ObservableObject {
     @Published var writePreview: WritePreview?
     @Published private(set) var lastAutoBackupName: String?
     @Published private(set) var customPresets: [CustomPreset] = []
+    @Published private(set) var experimentalVerifications: [String: ExperimentalVerification] = [:]
 
     private let access = GestaltAccess.shared()
     private var pendingWrite: PendingWrite?
@@ -78,6 +79,51 @@ final class GestaltViewModel: ObservableObject {
     init() {
         lastAutoBackupName = UserDefaults.standard.string(forKey: Self.lastAutoBackupKey)
         customPresets = CustomPresetStore.list()
+        experimentalVerifications = ExperimentalVerificationStore.load()
+    }
+
+    func experimentalResult(for id: GestaltTweakID) -> ExperimentalResult {
+        experimentalVerifications[id.rawValue]?.result ?? .unverified
+    }
+
+    func setExperimentalResult(_ result: ExperimentalResult, for id: GestaltTweakID) {
+        if result == .unverified {
+            experimentalVerifications.removeValue(forKey: id.rawValue)
+        } else {
+            experimentalVerifications[id.rawValue] = ExperimentalVerification(
+                result: result,
+                updatedAt: Date()
+            )
+        }
+        ExperimentalVerificationStore.save(experimentalVerifications)
+    }
+
+    /// Markdown summary the user can copy into the repo checklist.
+    var experimentalReport: String {
+        let definitions = GestaltTweakCatalog.definitions.filter { $0.category == .experimental }
+        let mine = plist?.cacheExtra["0+nc/Udy4WNG8S+Q7a/s1A"] as? String ?? "unknown"
+        var lines = [
+            "# GestaltEdit experimental results",
+            "",
+            "- Device: \(mine)",
+            "- Generated: \(Date().formatted(date: .numeric, time: .shortened))",
+            ""
+        ]
+        let sorted = definitions.sorted {
+            let lhs = (experimentalVerifications[$0.id.rawValue]?.result ?? .unverified).rank
+            let rhs = (experimentalVerifications[$1.id.rawValue]?.result ?? .unverified).rank
+            return lhs == rhs ? $0.title < $1.title : lhs < rhs
+        }
+        for definition in sorted {
+            let entry = experimentalVerifications[definition.id.rawValue]
+            let result = entry?.result ?? .unverified
+            let key = definition.values.keys.sorted().joined(separator: ", ")
+            lines.append("- [\(result.rawValue)] \(definition.title) — `\(key)`")
+            if let entry, result != .unverified {
+                lines.append("  - recorded \(entry.updatedAt.formatted(date: .numeric, time: .shortened))")
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     var aiRegionProfile: AIRegionProfile? {
@@ -349,14 +395,18 @@ final class GestaltViewModel: ObservableObject {
     }
 
     /// Rewrites the identity strings to the chosen model. Board and CPU codes are
-    /// deliberately left alone: guessing them would make the device inconsistent.
-    func spoofIdentity(as target: DeviceSpoofTarget) {
+    /// only written when the caller asks for them and a published value exists.
+    func spoofIdentity(as target: DeviceSpoofTarget, includeHardware: Bool = false) {
         guard !isBusy, var pending = plist else { return }
         pending.setCacheExtra(target.productType, forKey: "h9jDsbgj7xIVeIQ8S3/X3Q")
         pending.setCacheExtra(target.regulatoryModel, forKey: "97JDvERpVwO+GHtthIh7hA")
         for key in ["Z/dqyWS6OZTRy10UcmUAhw", "bbtR9jQx50Fv5Af/affNtA"]
         where pending.cacheExtra[key] != nil {
             pending.setCacheExtra(target.marketingName, forKey: key)
+        }
+        if includeHardware, let hardware = DeviceSpoofHardware.hardware(for: target.productType) {
+            pending.setCacheExtra(hardware.hardware, forKey: "oYicEKzVTz4/CxxE05pEgQ")
+            pending.setCacheExtra(hardware.cpu, forKey: "5pYKlGnYYBzGvAlIU8RjEQ")
         }
         requestWrite(
             pending,

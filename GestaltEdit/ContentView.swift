@@ -325,14 +325,54 @@ private struct TweakWorkbench: View {
         return Section {
             DisclosureGroup(isExpanded: $showsExperimental) {
                 ForEach(definitions) { definition in
-                    tweakRow(definition)
+                    HStack(spacing: 8) {
+                        tweakRow(definition)
+                        experimentalResultMenu(for: definition)
+                    }
+                }
+
+                ShareLink(
+                    item: viewModel.experimentalReport,
+                    preview: SharePreview("GestaltEdit experimental results")
+                ) {
+                    Label("Share Verification Report", systemImage: "square.and.arrow.up")
                 }
             } label: {
                 Label("Experimental (unverified)", systemImage: "flask")
                     .foregroundStyle(.orange)
             }
         } footer: {
-            Text("Keys reported by other MobileGestalt tools but not verified on this device. A wrong value can break system features, so every switch here is treated as high risk and requires confirmation.")
+            Text("Keys reported by other MobileGestalt tools but not verified on this device. Tap the icon on the right of each row to record what happened here; the report collects every result so it can be copied back into the repo checklist.")
+        }
+    }
+
+    private func experimentalResultMenu(for definition: GestaltTweakDefinition) -> some View {
+        let result = viewModel.experimentalResult(for: definition.id)
+        return Menu {
+            ForEach(ExperimentalResult.allCases) { candidate in
+                Button {
+                    viewModel.setExperimentalResult(candidate, for: definition.id)
+                } label: {
+                    Label(candidate.label, systemImage: candidate.symbol)
+                }
+            }
+        } label: {
+            Image(systemName: result.symbol)
+                .font(.caption)
+                .foregroundStyle(experimentalResultColor(result))
+        }
+        .accessibilityLabel(String(
+            format: String(localized: "Verification result: %@"),
+            result.label
+        ))
+    }
+
+    private func experimentalResultColor(_ result: ExperimentalResult) -> Color {
+        switch result {
+        case .unverified: .secondary
+        case .works: .green
+        case .noEffect: .gray
+        case .sideEffect: .orange
         }
     }
 
@@ -862,6 +902,12 @@ private struct BackupRow: View {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .accessibilityLabel("Export Backup")
+                if let log = GestaltBackupStore.changeLogURL(for: backup) {
+                    ShareLink(item: log) {
+                        Image(systemName: "doc.text")
+                    }
+                    .accessibilityLabel("Export Change Log")
+                }
                 Button("Restore", action: restore)
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
