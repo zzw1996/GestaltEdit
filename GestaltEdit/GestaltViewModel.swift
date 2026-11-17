@@ -131,13 +131,16 @@ final class GestaltViewModel: ObservableObject {
     }
 
     var requiresForcedAIEnable: Bool {
-        plist != nil && aiRegionProfile == nil
+        plist.map { AIRegionConfiguration.resolve(for: $0).requiresDeviceSpoofing } ?? false
     }
 
     var isAIRegionConfigured: Bool {
-        guard let profile = aiRegionProfile,
-              let cacheExtra = plist?.cacheExtra else { return false }
-        return cacheExtra["h63QSdBCiT/z0WU6rdQv6Q"] as? String == "LL"
+        guard let plist else { return false }
+        let configuration = AIRegionConfiguration.resolve(for: plist)
+        let profile = configuration.profile
+        let cacheExtra = plist.cacheExtra
+        return (!configuration.enablesSiriMode || cacheExtra["a3n5T9sFtlyQ74NEp9ESxg"] as? Int == 2)
+            && cacheExtra["h63QSdBCiT/z0WU6rdQv6Q"] as? String == "LL"
             && cacheExtra["yK+xavymRGZ3xWc1tb8XDg"] as? String == "LL/A"
             && cacheExtra["97JDvERpVwO+GHtthIh7hA"] as? String == profile.regulatoryModel
     }
@@ -487,10 +490,12 @@ final class GestaltViewModel: ObservableObject {
                    let hardwareModel = configuration.spoofedHardwareModel,
                    let cpuModel = configuration.spoofedCPUModel {
                     pending.setCacheExtra(1, forKey: "A62OafQ85EJAiiqKn4agtg")
-                    pending.setCacheExtra(2, forKey: "a3n5T9sFtlyQ74NEp9ESxg")
                     pending.setCacheExtra(productType, forKey: "h9jDsbgj7xIVeIQ8S3/X3Q")
                     pending.setCacheExtra(hardwareModel, forKey: "oYicEKzVTz4/CxxE05pEgQ")
                     pending.setCacheExtra(cpuModel, forKey: "5pYKlGnYYBzGvAlIU8RjEQ")
+                }
+                if configuration.enablesSiriMode {
+                    pending.setCacheExtra(2, forKey: "a3n5T9sFtlyQ74NEp9ESxg")
                 }
                 pending.setCacheExtra("LL", forKey: "h63QSdBCiT/z0WU6rdQv6Q")
                 pending.setCacheExtra("LL/A", forKey: "yK+xavymRGZ3xWc1tb8XDg")
@@ -983,6 +988,10 @@ final class GestaltViewModel: ObservableObject {
                 guard cacheExtra["h63QSdBCiT/z0WU6rdQv6Q"] as? String == "LL",
                       cacheExtra["yK+xavymRGZ3xWc1tb8XDg"] as? String == "LL/A",
                       cacheExtra["97JDvERpVwO+GHtthIh7hA"] as? String == expectedAIRegion.profile.regulatoryModel else {
+                    throw GestaltEditError.verificationFailed
+                }
+                if expectedAIRegion.enablesSiriMode,
+                   cacheExtra["a3n5T9sFtlyQ74NEp9ESxg"] as? Int != 2 {
                     throw GestaltEditError.verificationFailed
                 }
                 if expectedAIRegion.requiresDeviceSpoofing {

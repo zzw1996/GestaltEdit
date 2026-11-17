@@ -161,6 +161,13 @@ struct GestaltTweakDefinition: Identifiable {
     var promotedCategory: GestaltTweakCategory?
     /// Current verification result; filled in by `GestaltTweakCatalog.resolved`.
     var verification: ExperimentalResult = .unverified
+    var minimumOSMajor = 26
+    var minimumOSMinor = 0
+
+    func isAvailable(on version: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> Bool {
+        version.majorVersion > minimumOSMajor
+            || (version.majorVersion == minimumOSMajor && version.minorVersion >= minimumOSMinor)
+    }
 }
 
 enum GestaltTweakCatalog {
@@ -189,7 +196,7 @@ enum GestaltTweakCatalog {
 
         // Experimental keys: reported by GestaltX, not verified here. Every entry is
         // treated as risky and the section is collapsed by default.
-        .init(id: .aodHighBrightness, category: .experimental, title: String(localized: "AOD High Brightness"), detail: String(localized: "Unverified. May raise Always-On Display brightness and burn-in risk."), values: ["7brdL5xrEUWnlF9C0kdg5A": 1], isRisky: true, promotedCategory: .display),
+        .init(id: .aodHighBrightness, category: .experimental, title: String(localized: "AOD High Brightness"), detail: String(localized: "Unverified. May raise Always-On Display brightness and burn-in risk."), values: ["7brdL5xrEUWnlF9C0kdg5A": 1], isRisky: true, promotedCategory: .display, minimumOSMajor: 27),
         .init(id: .hdrPhotoDisplay, category: .experimental, title: String(localized: "HDR Photo Display"), detail: String(localized: "Unverified. Claims HDR photo rendering support."), values: ["a1r7npIrhXsZ7SmKRKC1eA": 1], isRisky: true, promotedCategory: .display),
         .init(id: .audioMix, category: .experimental, title: String(localized: "Audio Mix"), detail: String(localized: "Unverified. Enables the Audio Mix capability."), values: ["aVL5GE3tx0LSCI/ErfrJGA": 1], isRisky: true, promotedCategory: .media),
         .init(id: .spatialFaceTimeAudio, category: .experimental, title: String(localized: "Spatial FaceTime Audio"), detail: String(localized: "Unverified. Enables spatial audio in FaceTime."), values: ["/EVOCjM/Nmb2roP5ebtEFA": 1], isRisky: true, promotedCategory: .media),
@@ -214,6 +221,7 @@ enum GestaltTweakCatalog {
         includeHidden: Bool = false
     ) -> [GestaltTweakDefinition] {
         definitions.compactMap { definition in
+            guard definition.isAvailable() else { return nil }
             guard definition.category == .experimental else { return definition }
             let result = results[definition.id.rawValue]?.result ?? .unverified
             var copy = definition
@@ -257,9 +265,11 @@ enum GestaltTweakError: LocalizedError {
     case cacheDataPatternNotFound
     case invalidCacheDataOffset
     case ipadModeNotRevertible
+    case unsupportedPreset(String)
 
     var errorDescription: String? {
         switch self {
+        case .unsupportedPreset(let title): String(format: String(localized: "%@ is not available on this system version."), title)
         case .artworkDictionaryMissing: String(localized: "MobileGestalt is missing the ArtworkDevice dictionary, so Dynamic Island or model name cannot be changed.")
         case .cacheDataMissing: String(localized: "MobileGestalt is missing CacheData, so iPadOS mode cannot be enabled.")
         case .cacheDataTooShort: String(localized: "CacheData is too short to apply iPadOS mode safely.")
@@ -348,7 +358,10 @@ extension GestaltPlist {
         return capabilities ? .capabilities : nil
     }
 
-    mutating func apply(definition: GestaltTweakDefinition) throws {
+    mutating func apply(definition: GestaltTweakDefinition, on version: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) throws {
+        guard definition.isAvailable(on: version) else {
+            throw GestaltTweakError.unsupportedPreset(definition.title)
+        }
         for (key, value) in definition.values {
             setCacheExtra(value, forKey: key)
         }
@@ -571,5 +584,29 @@ extension GestaltPlist {
             index = next
         }
         dict["CacheData"] = data
+    }
+}
+
+struct GestaltRegionPreset: Identifiable {
+    let code: String
+    let title: String
+    var id: String { code }
+    var salesCode: String { code + "/A" }
+
+    static let all: [Self] = [
+        .init(code: "LL", title: String(localized: "United States")),
+        .init(code: "ZA", title: String(localized: "Hong Kong")),
+        .init(code: "J", title: String(localized: "Japan")),
+        .init(code: "CH", title: String(localized: "China Mainland")),
+        .init(code: "TA", title: String(localized: "Taiwan")),
+        .init(code: "B", title: String(localized: "United Kingdom")),
+        .init(code: "C", title: String(localized: "Canada"))
+    ]
+}
+
+extension GestaltPlist {
+    mutating func apply(region: GestaltRegionPreset) {
+        setCacheExtra(region.code, forKey: "h63QSdBCiT/z0WU6rdQv6Q")
+        setCacheExtra(region.salesCode, forKey: "yK+xavymRGZ3xWc1tb8XDg")
     }
 }
