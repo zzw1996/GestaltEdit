@@ -46,8 +46,12 @@ struct BackupChangeSet: Codable, Hashable {
     let removed: Int
     let changes: [BackupChange]
     let truncated: Bool
+    /// Set after the snapshot has been read back and verified on device.
+    var verified: Bool?
 
     var total: Int { added + modified + removed }
+
+    var isVerified: Bool { verified ?? false }
 
     var summary: String {
         String(

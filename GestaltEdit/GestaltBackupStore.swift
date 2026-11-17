@@ -85,8 +85,20 @@ enum GestaltBackupStore {
 
     /// Records which fields the write that followed this snapshot changed.
     static func attach(_ changes: BackupChangeSet, to backup: GestaltBackup) throws {
-        let data = try JSONEncoder().encode(changes)
+        var record = changes
+        record.verified = nil
+        let data = try JSONEncoder().encode(record)
         try data.write(to: sidecarURL(for: backup.url), options: .atomic)
+    }
+
+    /// Marks a snapshot as read back and verified after a successful restore.
+    static func markVerified(_ backup: GestaltBackup) throws {
+        let url = sidecarURL(for: backup.url)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard var record = changes(for: backup.url) else { return }
+        record.verified = true
+        let data = try JSONEncoder().encode(record)
+        try data.write(to: url, options: .atomic)
     }
 
     /// The change log that travels with a backup, if one was recorded.

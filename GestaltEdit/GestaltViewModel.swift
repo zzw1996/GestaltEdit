@@ -64,6 +64,7 @@ final class GestaltViewModel: ObservableObject {
     @Published var stagesAIRegion = false
     @Published var stagedIPadMode: IPadModeChoice?
     @Published var stagedRegionCode: String?
+    @Published var stagedRestoreOriginalRegion = false
     @Published private(set) var isRespringing = false
     @Published var writePreview: WritePreview?
     @Published private(set) var lastAutoBackupName: String?
@@ -153,6 +154,7 @@ final class GestaltViewModel: ObservableObject {
             || stagesAIRegion
             || stagedIPadMode != nil
             || stagedRegionCode != nil
+            || stagedRestoreOriginalRegion
     }
 
     var stagedChangeCount: Int {
@@ -162,6 +164,7 @@ final class GestaltViewModel: ObservableObject {
             + (stagesAIRegion ? 1 : 0)
             + (stagedIPadMode == nil ? 0 : 1)
             + (stagedRegionCode == nil ? 0 : 1)
+            + (stagedRestoreOriginalRegion ? 1 : 0)
     }
 
     /// True when every key of this tweak already holds the value it writes.
@@ -274,6 +277,21 @@ final class GestaltViewModel: ObservableObject {
         return true
     }
 
+    /// Original region captured on first read, if it differs from the file now.
+    var canRestoreRegion: Bool {
+        guard let snapshot = RegionStore.snapshot() else { return false }
+        let values = plist?.cacheExtra ?? [:]
+        let currentCode = values[RegionStore.regionCodeKey] as? String
+        let currentSuffix = values[RegionStore.salesSuffixKey] as? String
+        return currentCode != snapshot.code || currentSuffix != snapshot.suffix
+    }
+
+    /// Stages restoring the region keys to the first-read snapshot.
+    func restoreOriginalRegion() {
+        stagedRegionCode = nil
+        stagedRestoreOriginalRegion = true
+    }
+
     /// Read-only view of the region keys, so the user can verify what is on disk
     /// without opening the field editor.
     var regionSnapshot: (code: String, info: String, regulatory: String, device: String) {
@@ -340,6 +358,7 @@ final class GestaltViewModel: ObservableObject {
             plist = GestaltPlist(dict: dictionary)
             baselineDictionary = dictionary
             DeviceIdentityStore.captureIfNeeded(from: dictionary["CacheExtra"] as? [String: Any] ?? [:])
+            RegionStore.captureIfNeeded(from: dictionary["CacheExtra"] as? [String: Any] ?? [:])
             isDirty = false
             refreshBackups()
         } catch {
@@ -485,8 +504,15 @@ final class GestaltViewModel: ObservableObject {
                 guard !name.isEmpty else { throw GestaltEditError.emptyModelName }
                 try pending.setModelName(name)
             }
-            if let stagedRegionCode,
-               let preset = GestaltRegionPreset.all.first(where: { $0.code == stagedRegionCode }) {
+            if stagedRestoreOriginalRegion, let original = RegionStore.snapshot() {
+                if let code = original.code {
+                    pending.setCacheExtra(code, forKey: RegionStore.regionCodeKey)
+                }
+                if let suffix = original.suffix {
+                    pending.setCacheExtra(suffix, forKey: RegionStore.salesSuffixKey)
+                }
+            } else if let stagedRegionCode,
+                      let preset = GestaltRegionPreset.all.first(where: { $0.code == stagedRegionCode }) {
                 pending.apply(region: preset)
             }
             var expectedConfiguration: AIRegionConfiguration?
@@ -625,6 +651,7 @@ final class GestaltViewModel: ObservableObject {
                 self?.stagesAIRegion = false
                 self?.stagedIPadMode = nil
                 self?.stagedRegionCode = nil
+                self?.stagedRestoreOriginalRegion = false
             }
         } catch {
             report(error)
@@ -816,6 +843,7 @@ final class GestaltViewModel: ObservableObject {
                 expectedAIRegion: nil,
                 source: .restore,
                 completion: { [weak self] in
+                    try? GestaltBackupStore.markVerified(backup)
                     self?.clearStagedState()
                     if clearingUndoMarker { self?.clearUndoMarker() }
                 }
@@ -833,6 +861,7 @@ final class GestaltViewModel: ObservableObject {
         stagesAIRegion = false
         stagedIPadMode = nil
         stagedRegionCode = nil
+        stagedRestoreOriginalRegion = false
     }
 
     /// Restores a single field from a backup, leaving every other key untouched.

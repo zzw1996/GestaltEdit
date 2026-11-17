@@ -13,7 +13,7 @@
   <a href="https://github.com/frs0n/GestaltEdit/releases/latest"><img src="https://img.shields.io/github/v/release/frs0n/GestaltEdit?style=flat-square&label=release&color=6E56CF" alt="最新版本"></a>
   <a href="https://github.com/frs0n/GestaltEdit/releases"><img src="https://img.shields.io/github/downloads/frs0n/GestaltEdit/total?style=flat-square&label=downloads&color=6E56CF" alt="下载量"></a>
   <a href="https://github.com/frs0n/GestaltEdit/stargazers"><img src="https://img.shields.io/github/stars/frs0n/GestaltEdit?style=flat-square&color=6E56CF" alt="Stars"></a>
-  <img src="https://img.shields.io/badge/iOS%20%7C%20iPadOS-27-000000?style=flat-square&logo=apple&logoColor=white" alt="支持平台">
+  <img src="https://img.shields.io/badge/iOS%20%7C%20iPadOS-26-000000?style=flat-square&logo=apple&logoColor=white" alt="支持平台">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-6E56CF?style=flat-square" alt="GPL-3.0 或更高版本"></a>
 </p>
 
@@ -30,7 +30,7 @@
 > 本项目使用私有 API 并修改系统缓存数据。错误的取值可能破坏系统功能，严重时需要刷机恢复。请仅在你本人拥有的设备上使用。
 
 > [!IMPORTANT]
-> 本项目免费、源码公开；未经授权，不得以任何形式出售本 App。
+> 本项目以 GPL-3.0 或更高版本开源，可按许可条款自由使用与再分发；再分发时须保留许可声明并开放源码。
 
 ## 功能
 

@@ -202,13 +202,23 @@ private struct TweakWorkbench: View {
             LabeledContent("Region code", value: snapshot.code)
             LabeledContent("Region info", value: snapshot.info)
             LabeledContent("Regulatory model", value: snapshot.regulatory)
-            Picker(selection: $viewModel.stagedRegionCode) {
+            Picker(selection: Binding(
+                get: { viewModel.stagedRegionCode },
+                set: { viewModel.stagedRegionCode = $0; viewModel.stagedRestoreOriginalRegion = false }
+            )) {
                 Text("Keep Current Region").tag(String?.none)
                 ForEach(GestaltRegionPreset.all) { preset in
                     Text(preset.title).tag(String?.some(preset.code))
                 }
             } label: {
                 Text("Region Preset")
+            }
+            if viewModel.canRestoreRegion, !viewModel.stagedRestoreOriginalRegion {
+                Button {
+                    viewModel.restoreOriginalRegion()
+                } label: {
+                    Label("Restore Original Region", systemImage: "arrow.uturn.backward.circle")
+                }
             }
         } header: {
             Text("Region & Device")
@@ -908,7 +918,19 @@ private struct BackupLibrary: View {
                 }
                 Button("Cancel", role: .cancel) { backupToRestore = nil }
             } message: {
-                Text("The current file will be backed up first. SpringBoard will refresh automatically after restoring.")
+                if let backup = backupToRestore {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(backup.name)
+                            .font(.headline)
+                        Text(ByteCountFormatter.string(fromByteCount: backup.byteCount, countStyle: .file))
+                        if let changes = backup.changes {
+                            Text(changes.summary)
+                        }
+                        Text("The current file will be backed up first. SpringBoard will refresh automatically after restoring.")
+                    }
+                } else {
+                    Text("The current file will be backed up first. SpringBoard will refresh automatically after restoring.")
+                }
             }
         }
     }
@@ -933,6 +955,11 @@ private struct BackupRow: View {
                         Text("Manual")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.blue)
+                    }
+                    if backup.changes?.isVerified == true {
+                        Text("Verified")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.green)
                     }
                     if let changes = backup.changes {
                         Button {
