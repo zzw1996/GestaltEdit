@@ -202,10 +202,18 @@ private struct TweakWorkbench: View {
             LabeledContent("Region code", value: snapshot.code)
             LabeledContent("Region info", value: snapshot.info)
             LabeledContent("Regulatory model", value: snapshot.regulatory)
+            Picker(selection: $viewModel.stagedRegionCode) {
+                Text("Keep Current Region").tag(String?.none)
+                ForEach(GestaltRegionPreset.all) { preset in
+                    Text(preset.title).tag(String?.some(preset.code))
+                }
+            } label: {
+                Text("Region Preset")
+            }
         } header: {
             Text("Region & Device")
         } footer: {
-            Text("Read-only values from MobileGestalt, shown so you can check what the file really contains.")
+            Text("Changing the preset stages the region code and sales suffix; review the change preview before writing.")
         }
     }
 

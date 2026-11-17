@@ -63,6 +63,7 @@ final class GestaltViewModel: ObservableObject {
     @Published var modelName = ""
     @Published var stagesAIRegion = false
     @Published var stagedIPadMode: IPadModeChoice?
+    @Published var stagedRegionCode: String?
     @Published private(set) var isRespringing = false
     @Published var writePreview: WritePreview?
     @Published private(set) var lastAutoBackupName: String?
@@ -151,6 +152,7 @@ final class GestaltViewModel: ObservableObject {
             || (changesModelName && !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             || stagesAIRegion
             || stagedIPadMode != nil
+            || stagedRegionCode != nil
     }
 
     var stagedChangeCount: Int {
@@ -159,6 +161,7 @@ final class GestaltViewModel: ObservableObject {
             + (changesModelName ? 1 : 0)
             + (stagesAIRegion ? 1 : 0)
             + (stagedIPadMode == nil ? 0 : 1)
+            + (stagedRegionCode == nil ? 0 : 1)
     }
 
     /// True when every key of this tweak already holds the value it writes.
@@ -482,6 +485,10 @@ final class GestaltViewModel: ObservableObject {
                 guard !name.isEmpty else { throw GestaltEditError.emptyModelName }
                 try pending.setModelName(name)
             }
+            if let stagedRegionCode,
+               let preset = GestaltRegionPreset.all.first(where: { $0.code == stagedRegionCode }) {
+                pending.apply(region: preset)
+            }
             var expectedConfiguration: AIRegionConfiguration?
             if stagesAIRegion {
                 let configuration = AIRegionConfiguration.resolve(for: pending)
@@ -617,6 +624,7 @@ final class GestaltViewModel: ObservableObject {
                 self?.modelName = ""
                 self?.stagesAIRegion = false
                 self?.stagedIPadMode = nil
+                self?.stagedRegionCode = nil
             }
         } catch {
             report(error)
@@ -824,6 +832,7 @@ final class GestaltViewModel: ObservableObject {
         modelName = ""
         stagesAIRegion = false
         stagedIPadMode = nil
+        stagedRegionCode = nil
     }
 
     /// Restores a single field from a backup, leaving every other key untouched.

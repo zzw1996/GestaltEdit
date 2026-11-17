@@ -339,6 +339,9 @@
 "Region code" = "区域代码";
 "Region info" = "区域信息";
 "Regulatory model" = "监管型号";
+"Region Preset" = "区域预设";
+"Keep Current Region" = "保持当前区域";
+"Changing the preset stages the region code and sales suffix; review the change preview before writing." = "选择预设只会暂存区域代码与销售后缀；写入前请先查看变更预览。";
 "Read-only values from MobileGestalt, shown so you can check what the file really contains." = "来自 MobileGestalt 的只读值，用于核对文件里到底是什么。";
 "Unknown" = "未知";
 "Custom Presets" = "自定义预设";
